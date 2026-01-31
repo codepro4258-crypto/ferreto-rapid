@@ -107,6 +107,9 @@
                 <a class="menu-item" data-section="leaderboard" onclick="showSection('leaderboard')">
                     <i class="fas fa-trophy menu-icon"></i> Project Leaderboard
                 </a>
+                <a class="menu-item" data-section="groupChat" onclick="showSection('groupChat')">
+                    <i class="fas fa-comments menu-icon"></i> Group Chat
+                </a>
 
                 <div class="menu-category" id="adminCategory" style="display:none;">Administration</div>
                 <a class="menu-item" id="adminUsersLink" data-section="adminUsers" onclick="showSection('adminUsers')" style="display:none;">
@@ -296,8 +299,13 @@
             <!-- ATTENDANCE -->
             <section class="content-section" id="attendance">
                 <div class="page-header">
-                    <h2>Biometric Attendance System</h2>
-                    <p>Mark your presence using advanced facial recognition verification with 99.8% accuracy.</p>
+                    <div>
+                        <h2>Biometric Attendance System</h2>
+                        <p>Mark your presence using advanced facial recognition verification with 99.8% accuracy.</p>
+                    </div>
+                    <div class="attendance-face-status" id="attendanceFaceStatus">
+                        <span class="badge badge-warning"><i class="fas fa-user-shield"></i> Face ID Not Registered</span>
+                    </div>
                 </div>
 
                 <div class="flex flex-col gap-6" style="max-width: 900px; margin: 0 auto;">
@@ -421,6 +429,59 @@
                 </div>
                 
                 <div class="grid-container" id="leaderboardGrid"></div>
+            </section>
+
+            <!-- GROUP CHAT -->
+            <section class="content-section" id="groupChat">
+                <div class="page-header">
+                    <div>
+                        <h2>Group Collaboration Hub</h2>
+                        <p>Admins create groups and members collaborate in real-time with formatted code snippets.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-primary" id="createGroupBtn" onclick="openGroupModal()">
+                            <i class="fas fa-users-cog"></i> Create Group
+                        </button>
+                    </div>
+                </div>
+
+                <div class="group-chat-layout">
+                    <div class="card group-list">
+                        <div class="group-list-header">
+                            <h3>My Groups</h3>
+                            <input type="text" class="form-input" placeholder="Search groups..." id="groupSearchInput" onkeyup="filterGroups(this.value)">
+                        </div>
+                        <div class="group-list-body" id="groupList"></div>
+                    </div>
+
+                    <div class="card group-chat-panel">
+                        <div class="group-chat-header" id="activeGroupHeader">
+                            <div>
+                                <h3>Select a group</h3>
+                                <p class="text-sm text-gray">Choose a group to start chatting.</p>
+                            </div>
+                            <div class="group-members" id="groupMemberList"></div>
+                        </div>
+                        <div class="group-chat-body" id="groupMessages">
+                            <div class="empty-state">
+                                <i class="fas fa-comments"></i>
+                                <h3>No group selected</h3>
+                                <p>Select a group from the left panel to view messages.</p>
+                            </div>
+                        </div>
+                        <div class="group-chat-composer">
+                            <div class="composer-tip text-xs text-gray">
+                                Tip: Wrap code with <code>```</code> to format snippets.
+                            </div>
+                            <div class="composer-input">
+                                <textarea id="groupMessageInput" class="form-textarea" rows="3" placeholder="Write a message or code snippet..."></textarea>
+                                <button class="btn btn-primary" onclick="sendGroupMessage()">
+                                    <i class="fas fa-paper-plane"></i> Send
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- ADMIN DASHBOARD -->
@@ -756,6 +817,37 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('courseModal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save Course</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="groupModal">
+        <div class="modal-box" style="max-width: 720px;">
+            <div class="modal-header">
+                <h3>Create Collaboration Group</h3>
+                <button class="close-modal" onclick="closeModal('groupModal')">&times;</button>
+            </div>
+            <form id="groupForm">
+                <div class="modal-body">
+                    <input type="hidden" id="groupId">
+                    <div class="form-group">
+                        <label class="form-label">Group Name *</label>
+                        <input type="text" class="form-input" id="groupNameInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-textarea" id="groupDescInput" rows="3" placeholder="What is this group about?"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Add Members</label>
+                        <div class="member-select-list" id="groupMemberSelect"></div>
+                        <p class="text-xs text-gray mt-2">Admins can update membership anytime.</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('groupModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Group</button>
                 </div>
             </form>
         </div>
