@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ferretto Edu Pro v3.0 - Enterprise Biometric LMS</title>
+
+<!-- CSS and CDN links -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+<link rel="stylesheet" href="styles.css">
+
+</head>
+<body>
+
+    <!-- LOGIN PAGE -->
+    <div class="login-wrapper" id="loginPage">
+        <div class="login-container">
+            <div class="login-header">
+                <div class="logo-lg"><i class="fas fa-graduation-cap"></i></div>
+                <h1>Ferretto Edu Pro v3.0</h1>
+                <p>Enterprise Biometric Learning Management System</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-input" id="username" placeholder="Enter username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="password" placeholder="Enter password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block btn-lg">
+                    <i class="fas fa-sign-in-alt"></i> Sign In
+                </button>
+                <div style="margin-top: 2rem; text-align: center; font-size: 0.85rem; color: var(--gray); padding: 15px; background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-radius: 8px; border-left: 4px solid var(--primary);">
+                    <p style="margin-bottom: 0.5rem;"><strong>Demo Credentials:</strong></p>
+                    <p style="margin-bottom: 0.25rem;">Admin: <code>admin</code> / <code>admin12345</code></p>
+                    <p>Student: <code>student</code> / <code>student123</code></p>
+                    <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--warning);">
+                        <i class="fas fa-exclamation-triangle"></i> Face registration required for biometric attendance
+                    </p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div class="dashboard" id="dashboardPage">
+        
+        <!-- TOP NAVIGATION -->
+        <nav class="top-nav">
+            <div class="top-nav-content">
+                <a href="#" class="nav-brand" onclick="showSection('overview')">
+                    <div class="logo-sm"><i class="fas fa-graduation-cap"></i></div>
+                    <span>Ferretto Edu Pro</span>
+                </a>
+                <div class="nav-user">
+                    <div class="hidden-mobile" style="text-align: right; margin-right: 10px;">
+                        <div class="text-sm font-bold" id="userName">User</div>
+                        <div class="text-xs text-gray" id="userRole">Role</div>
+                    </div>
+                    <div class="relative">
+                        <div class="user-avatar" id="userAvatar" onclick="toggleUserDropdown()">U</div>
+                        <div class="user-dropdown" id="userDropdown">
+                            <div class="user-dropdown-item">
+                                <i class="fas fa-user"></i>
+                                <span id="dropdownUserName">User Profile</span>
+                            </div>
+                            <div class="user-dropdown-item" onclick="showSection('settings')">
+                                <i class="fas fa-cog"></i>
+                                <span>Settings</span>
+                            </div>
+                            <div class="user-dropdown-item" onclick="handleLogout()">
+                                <i class="fas fa-power-off"></i>
+                                <span>Logout</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline btn-sm hidden-desktop" id="mobileMenuBtn" onclick="toggleSidebar()">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- SIDEBAR -->
+        <aside class="sidebar" id="sidebar">
+            <nav class="sidebar-menu">
+                <div class="menu-category">Main</div>
+                <a class="menu-item active" data-section="overview" onclick="showSection('overview')">
+                    <i class="fas fa-th-large menu-icon"></i> Dashboard
+                </a>
+                <a class="menu-item" data-section="studyMaterials" onclick="showSection('studyMaterials')">
+                    <i class="fas fa-book-reader menu-icon"></i> Study Materials
+                </a>
+                <a class="menu-item" data-section="projects" onclick="showSection('projects')">
+                    <i class="fas fa-laptop-code menu-icon"></i> Code Playground
+                </a>
+                <a class="menu-item" data-section="attendance" onclick="showSection('attendance')">
+                    <i class="fas fa-calendar-check menu-icon"></i> Attendance
+                    <span class="menu-badge" id="attendanceBadge">0</span>
+                </a>
+                
+                <div class="menu-category">Social</div>
+                <a class="menu-item" data-section="leaderboard" onclick="showSection('leaderboard')">
+                    <i class="fas fa-trophy menu-icon"></i> Project Leaderboard
+                </a>
+
+                <div class="menu-category" id="adminCategory" style="display:none;">Administration</div>
+                <a class="menu-item" id="adminUsersLink" data-section="adminUsers" onclick="showSection('adminUsers')" style="display:none;">
+                    <i class="fas fa-users-cog menu-icon"></i> User Management
+                </a>
+                <a class="menu-item" id="adminCoursesLink" data-section="adminCourses" onclick="showSection('adminCourses')" style="display:none;">
+                    <i class="fas fa-layer-group menu-icon"></i> Course Management
+                </a>
+                <a class="menu-item" id="adminMaterialsLink" data-section="adminMaterials" onclick="showSection('adminMaterials')" style="display:none;">
+                    <i class="fas fa-file-import menu-icon"></i> Materials Library
+                </a>
+                <a class="menu-item" id="adminDashboardLink" data-section="adminDashboard" onclick="showSection('adminDashboard')" style="display:none;">
+                    <i class="fas fa-chart-line menu-icon"></i> Admin Dashboard
+                </a>
+            </nav>
+
+            <div style="padding: 1.5rem; margin-top: auto; text-align: center; border-top: 1px solid var(--border); background: linear-gradient(to right, #fafafa, #f5f5f5);">
+                <p class="text-xs text-gray" style="margin-bottom: 0.25rem;">Ferretto Edu v3.0 Enterprise</p>
+                <p class="text-xs text-gray" style="margin-bottom: 0.25rem;">Powered by FaceSafe Ultra™</p>
+                <p class="text-xs text-gray">&copy; 2023 All Rights Reserved</p>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+            
+            <!-- DASHBOARD OVERVIEW -->
+            <section class="content-section active" id="overview">
+                <div class="page-header">
+                    <div>
+                        <h2>Dashboard Overview</h2>
+                        <p>Welcome back, <span id="welcomeName" class="text-primary font-bold">User</span>! Here is your learning progress and statistics.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-primary" id="quickMarkBtn" onclick="showSection('attendance')">
+                            <i class="fas fa-id-card-alt"></i> Biometric Check-In
+                        </button>
+                        <button class="btn btn-outline" onclick="refreshDashboard()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">Enrolled Course</span>
+                            <div class="stat-icon" style="background: linear-gradient(135deg, #4f46e5, #818cf8);">
+                                <i class="fas fa-book"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="statCourseName">None</div>
+                        <div class="stat-trend up" id="statCourseCode">-</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">Attendance Rate</span>
+                            <div class="stat-icon" style="background: linear-gradient(135deg, #10b981, #34d399);">
+                                <i class="fas fa-chart-pie"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="statAttendance">0%</div>
+                        <div class="stat-trend up" id="statAttendanceTrend"><i class="fas fa-arrow-up"></i> Keep it up!</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">My Projects</span>
+                            <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b, #fbbf24);">
+                                <i class="fas fa-code-branch"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="statProjects">0</div>
+                        <div class="stat-trend" id="statProjectsTrend"><i class="fas fa-code"></i> Code Created</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-label">Received Likes</span>
+                            <div class="stat-icon" style="background: linear-gradient(135deg, #ef4444, #f87171);">
+                                <i class="fas fa-heart"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="statLikes">0</div>
+                        <div class="stat-trend" id="statLikesTrend"><i class="fas fa-star"></i> Community Love</div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <div class="table-actions">
+                        <h3>Recent Activity</h3>
+                        <button class="btn btn-outline btn-sm" onclick="showSection('attendance')">View All</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Activity</th>
+                                <th>Details</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentActivityTable">
+                            <!-- Dynamic content -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- STUDY MATERIALS -->
+            <section class="content-section" id="studyMaterials">
+                <div class="page-header">
+                    <div>
+                        <h2>Study Materials</h2>
+                        <p>Access documents, PDFs, and code snippets for your course. Download or view materials directly.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline" onclick="refreshMaterials()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button class="btn btn-primary" onclick="downloadAllMaterials()" id="downloadAllBtn" style="display: none;">
+                            <i class="fas fa-download"></i> Download All
+                        </button>
+                    </div>
+                </div>
+                <div id="materialContainer" class="material-list"></div>
+            </section>
+
+            <!-- CODE PLAYGROUND -->
+            <section class="content-section" id="projects">
+                <div class="page-header">
+                    <div>
+                        <h2>Code Playground</h2>
+                        <p>Write, run, and save your HTML/CSS/JS projects directly in the browser. Supports real-time preview.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-secondary" onclick="resetEditor()">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                        <button class="btn btn-success" onclick="runCode()">
+                            <i class="fas fa-play"></i> Run
+                        </button>
+                        <button class="btn btn-primary" onclick="openProjectModal()">
+                            <i class="fas fa-save"></i> Save Project
+                        </button>
+                    </div>
+                </div>
+
+                <div class="editor-layout">
+                    <div class="editor-pane">
+                        <div class="pane-header">
+                            <span><i class="fas fa-code"></i> HTML / CSS / JavaScript</span>
+                            <span class="text-xs" style="opacity: 0.8;">Auto-saved locally • Live Preview</span>
+                        </div>
+                        <div class="pane-content">
+                            <textarea id="codeEditor"></textarea>
+                        </div>
+                    </div>
+                    <div class="preview-pane">
+                        <div class="pane-header">
+                            <span><i class="fas fa-desktop"></i> Live Output</span>
+                            <div class="flex gap-2">
+                                <button class="code-btn" onclick="forceRefreshPreview()">
+                                    <i class="fas fa-sync"></i> Refresh
+                                </button>
+                                <button class="code-btn" onclick="openPreviewInNewTab()">
+                                    <i class="fas fa-external-link-alt"></i> Fullscreen
+                                </button>
+                            </div>
+                        </div>
+                        <div class="pane-content">
+                            <iframe id="previewFrame" sandbox="allow-scripts allow-modals allow-forms allow-same-origin"></iframe>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="page-header" style="margin-top: 3rem; margin-bottom: 1rem;">
+                    <h3>My Saved Projects</h3>
+                    <button class="btn btn-outline btn-sm" onclick="refreshMyProjects()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                <div class="grid-container" id="myProjectsGrid"></div>
+            </section>
+
+            <!-- ATTENDANCE -->
+            <section class="content-section" id="attendance">
+                <div class="page-header">
+                    <h2>Biometric Attendance System</h2>
+                    <p>Mark your presence using advanced facial recognition verification with 99.8% accuracy.</p>
+                </div>
+
+                <div class="flex flex-col gap-6" style="max-width: 900px; margin: 0 auto;">
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-camera"></i> Face Verification
+                            </div>
+                            <div class="text-sm text-gray">
+                                <i class="fas fa-info-circle"></i> Requires camera and location access
+                            </div>
+                        </div>
+                        <div class="card-body" style="display: flex; flex-direction: column; gap: 1.5rem; align-items: center;">
+                            
+                            <div class="camera-container" id="attendanceCameraContainer">
+                                <video id="attendanceVideo" class="webcam-feed" autoplay playsinline muted></video>
+                                <canvas id="attendanceCanvas" class="overlay-canvas"></canvas>
+                                
+                                <!-- Precision HUD -->
+                                <div class="biometric-hud">
+                                    <div class="hud-text" id="attHudStatus">STATUS: IDLE</div>
+                                    <div class="hud-text" id="attHudAlign">ALIGN: --</div>
+                                    <div class="hud-text" id="attHudScore">SCORE: 0%</div>
+                                </div>
+                                
+                                <div class="camera-overlay-ui">
+                                    <div>
+                                        <span class="text-sm" style="opacity: 0.9;">Live Biometric Feed</span>
+                                        <div class="text-xs" style="opacity: 0.7;">FaceSafe Ultra™ Engine v3.0</div>
+                                    </div>
+                                    <div class="face-status-indicator">
+                                        <div class="status-dot" id="attendanceStatusDot"></div>
+                                        <span id="attendanceStatusText">Camera Off</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="biometric-actions">
+                                <button class="btn btn-primary btn-lg" id="btnStartAttendance" onclick="startAttendanceScanner()">
+                                    <i class="fas fa-camera"></i> Start Camera & Verify
+                                </button>
+                                <button class="btn btn-danger btn-lg hidden" id="btnStopAttendance" onclick="stopAttendanceScanner()">
+                                    <i class="fas fa-stop"></i> Stop Camera
+                                </button>
+                                <button class="btn btn-outline btn-lg" onclick="testFaceVerification()">
+                                    <i class="fas fa-vial"></i> Test Verification
+                                </button>
+                            </div>
+
+                            <div class="registration-status hidden" id="scanProgressArea">
+                                <h4 class="mb-4 text-primary">Verifying Identity...</h4>
+                                <div class="text-sm text-gray mb-4">
+                                    <i class="fas fa-lightbulb"></i> Keep your face centered in the frame. Verification will complete automatically.
+                                </div>
+                                <div class="progress-bg" id="scanProgressWrap">
+                                    <div class="progress-fill" id="scanProgressBar"></div>
+                                </div>
+                                <div class="text-xs text-gray mt-4" id="scanProgressText">
+                                    Waiting for facial data...
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <div class="table-actions">
+                            <h3>My Attendance History</h3>
+                            <div class="flex items-center gap-4">
+                                <div class="text-sm text-gray" id="geoStatus">
+                                    <i class="fas fa-map-marker-alt"></i> Location: Waiting...
+                                </div>
+                                <button class="btn btn-outline btn-sm" onclick="exportAttendanceCSV()">
+                                    <i class="fas fa-download"></i> Export CSV
+                                </button>
+                            </div>
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date & Time</th>
+                                    <th>Course</th>
+                                    <th>Location</th>
+                                    <th>Method</th>
+                                    <th>Confidence</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fullAttendanceTable"></tbody>
+                        </table>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- LEADERBOARD -->
+            <section class="content-section" id="leaderboard">
+                <div class="page-header">
+                    <h2>Project Leaderboard</h2>
+                    <p>Discover and run public projects created by the community. Like and share your favorites!</p>
+                </div>
+                
+                <div style="margin-bottom: 2rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="loadLeaderboard('trending')">
+                        <i class="fas fa-fire"></i> Trending
+                    </button>
+                    <button class="btn btn-outline" onclick="loadLeaderboard('recent')">
+                        <i class="fas fa-clock"></i> Recent
+                    </button>
+                    <button class="btn btn-outline" onclick="loadLeaderboard('most_liked')">
+                        <i class="fas fa-heart"></i> Most Liked
+                    </button>
+                    <button class="btn btn-outline" onclick="loadLeaderboard('featured')">
+                        <i class="fas fa-star"></i> Featured
+                    </button>
+                    <div class="ml-auto">
+                        <input type="text" class="form-input" placeholder="Search projects..." style="width: 250px;" 
+                               onkeyup="searchProjects(this.value)">
+                    </div>
+                </div>
+                
+                <div class="grid-container" id="leaderboardGrid"></div>
+            </section>
+
+            <!-- ADMIN DASHBOARD -->
+            <section class="content-section" id="adminDashboard">
+                <div class="page-header">
+                    <h2>Admin Dashboard</h2>
+                    <p>System overview and administration controls. Monitor all activities and user engagements.</p>
+                </div>
+                
+                <div class="admin-dashboard-view">
+                    <div class="admin-view-header">
+                        <h3>System Statistics</h3>
+                        <div class="admin-view-actions">
+                            <button class="btn btn-outline" onclick="refreshAdminStats()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button class="btn btn-primary" onclick="generateSystemReport()">
+                                <i class="fas fa-file-export"></i> Generate Report
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Total Users</span>
+                                <div class="stat-icon" style="background: linear-gradient(135deg, #4f46e5, #818cf8);">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                            </div>
+                            <div class="stat-value" id="adminTotalUsers">0</div>
+                            <div class="stat-trend" id="adminUsersTrend">Active today: 0</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Active Sessions</span>
+                                <div class="stat-icon" style="background: linear-gradient(135deg, #10b981, #34d399);">
+                                    <i class="fas fa-signal"></i>
+                                </div>
+                            </div>
+                            <div class="stat-value" id="adminActiveSessions">0</div>
+                            <div class="stat-trend up" id="adminSessionsTrend">Live now</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Attendance Rate</span>
+                                <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b, #fbbf24);">
+                                    <i class="fas fa-calendar-check"></i>
+                                </div>
+                            </div>
+                            <div class="stat-value" id="adminAttendanceRate">0%</div>
+                            <div class="stat-trend" id="adminAttendanceTrend">Today: 0/0</div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Storage Usage</span>
+                                <div class="stat-icon" style="background: linear-gradient(135deg, #ef4444, #f87171);">
+                                    <i class="fas fa-database"></i>
+                                </div>
+                            </div>
+                            <div class="stat-value" id="adminStorageUsage">0 MB</div>
+                            <div class="stat-trend" id="adminStorageTrend">Projects & Materials</div>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container mt-6">
+                        <div class="table-actions">
+                            <h3>Recent System Activities</h3>
+                            <button class="btn btn-outline btn-sm" onclick="viewAllActivities()">
+                                View All
+                            </button>
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                    <th>IP Address</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminActivitiesTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ADMIN USER MANAGEMENT -->
+            <section class="content-section" id="adminUsers">
+                <div class="page-header">
+                    <h2>User Management</h2>
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline" onclick="exportUsersCSV()">
+                            <i class="fas fa-file-export"></i> Export
+                        </button>
+                        <button class="btn btn-success" onclick="openUserModal()">
+                            <i class="fas fa-user-plus"></i> Add User
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Course</th>
+                                <th>Biometric Status</th>
+                                <th>Last Active</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminUsersTable"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ADMIN COURSE MANAGEMENT -->
+            <section class="content-section" id="adminCourses">
+                <div class="page-header">
+                    <h2>Course Management</h2>
+                    <button class="btn btn-success" onclick="openCourseModal()">
+                        <i class="fas fa-plus-circle"></i> Add New Course
+                    </button>
+                </div>
+                <div class="grid-container" id="adminCoursesGrid"></div>
+            </section>
+
+            <!-- ADMIN MATERIALS LIBRARY -->
+            <section class="content-section" id="adminMaterials">
+                <div class="page-header">
+                    <h2>Materials Library</h2>
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline" onclick="uploadMaterialFile()">
+                            <i class="fas fa-upload"></i> Upload File
+                        </button>
+                        <button class="btn btn-primary" onclick="openMaterialModal()">
+                            <i class="fas fa-plus"></i> Add Material
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Type</th>
+                                <th>Course</th>
+                                <th>Size</th>
+                                <th>Date Added</th>
+                                <th>Downloads</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminMaterialsTable"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODALS -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>User Details</h3>
+                <button class="close-modal" onclick="closeModal('userModal')">&times;</button>
+            </div>
+            <form id="userForm">
+                <div class="modal-body">
+                    <input type="hidden" id="userId">
+                    <div class="form-group">
+                        <label class="form-label">Full Name *</label>
+                        <input type="text" class="form-input" id="userNameInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email Address *</label>
+                        <input type="email" class="form-input" id="userEmailInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Username *</label>
+                        <input type="text" class="form-input" id="userUsernameInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password *</label>
+                        <input type="password" class="form-input" id="userPassInput" required>
+                        <p class="text-xs text-gray mt-1">Minimum 8 characters with letters and numbers</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Role *</label>
+                        <select class="form-select" id="userRoleInput">
+                            <option value="student">Student</option>
+                            <option value="lecturer">Lecturer</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Assign Course</label>
+                        <select class="form-select" id="userCourseInput">
+                            <option value="">No Course</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Additional Notes</label>
+                        <textarea class="form-textarea" id="userNotesInput" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('userModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="faceRegistrationModal">
+        <div class="modal-box" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3>Register Biometric Face Data</h3>
+                <button class="close-modal" onclick="closeModal('faceRegistrationModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="flex flex-col gap-6">
+                    
+                    <div class="flex items-center gap-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border">
+                        <div class="face-grid-preview">
+                            <img id="regFacePreview" src="" alt="" class="hidden">
+                            <i class="fas fa-user fa-3x text-gray-300" id="regFaceIcon"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h4 id="regUserName" class="font-bold text-xl mb-2 text-primary">User Name</h4>
+                            <p class="text-gray-600 mb-3">Please look directly at the camera. The system will capture 30 high-quality samples for maximum accuracy.</p>
+                            <div class="flex gap-4 text-sm">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-check-circle text-success"></i>
+                                    <span>99.8% Accuracy</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-shield-alt text-primary"></i>
+                                    <span>Encrypted Storage</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="camera-container" style="height: 500px;">
+                        <video id="regVideo" class="webcam-feed" autoplay playsinline muted></video>
+                        <canvas id="regCanvas" class="overlay-canvas"></canvas>
+                        <div class="biometric-hud">
+                            <div class="hud-text" id="regHudFps">FPS: 0</div>
+                            <div class="hud-text" id="regHudAlign">ALIGN: --</div>
+                            <div class="hud-text" id="regHudSamples">SAMPLES: 0/30</div>
+                        </div>
+                        <div class="camera-overlay-ui">
+                            <div>
+                                <span class="text-sm font-medium">Registration Mode</span>
+                                <div class="text-xs opacity-75">FaceSafe Ultra™ Enrollment Protocol</div>
+                            </div>
+                            <div class="face-status-indicator">
+                                <div class="status-dot" id="regStatusDot"></div>
+                                <span id="regStatusText">Idle</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="biometric-actions">
+                        <button class="btn btn-primary btn-lg" id="btnStartReg" onclick="startRegistrationProcess()">
+                            <i class="fas fa-play-circle"></i> Start Registration
+                        </button>
+                        <button class="btn btn-danger btn-lg hidden" id="btnStopReg" onclick="stopRegistrationProcess()">
+                            <i class="fas fa-stop-circle"></i> Cancel Registration
+                        </button>
+                        <button class="btn btn-outline btn-lg" onclick="testRegistrationCamera()">
+                            <i class="fas fa-video"></i> Test Camera
+                        </button>
+                    </div>
+
+                    <div class="progress-bg hidden" id="regProgressWrap">
+                        <div class="progress-fill" id="regProgressBar"></div>
+                    </div>
+
+                    <div class="grid-container" id="registrationSamplesGrid" style="display: none;">
+                        <!-- Sample previews will be added here -->
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="courseModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Course Details</h3>
+                <button class="close-modal" onclick="closeModal('courseModal')">&times;</button>
+            </div>
+            <form id="courseForm">
+                <div class="modal-body">
+                    <input type="hidden" id="courseId">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="form-group">
+                            <label class="form-label">Course Code *</label>
+                            <input type="text" class="form-input" id="courseCode" placeholder="e.g. CS101" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Course Name *</label>
+                            <input type="text" class="form-input" id="courseName" placeholder="e.g. Intro to Web Dev" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Lecturer Name *</label>
+                        <input type="text" class="form-input" id="courseLecturer" placeholder="Prof. Smith" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Schedule</label>
+                        <input type="text" class="form-input" id="courseSchedule" placeholder="Mon & Wed, 10:00 AM">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-textarea" id="courseDesc" rows="4" placeholder="Detailed course description..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Course Credits</label>
+                        <input type="number" class="form-input" id="courseCredits" placeholder="3" min="1" max="10">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('courseModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Course</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="materialModal">
+        <div class="modal-box" style="max-width: 1000px;">
+            <div class="modal-header">
+                <h3>Add Study Material</h3>
+                <button class="close-modal" onclick="closeModal('materialModal')">&times;</button>
+            </div>
+            <form id="materialForm" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <input type="hidden" id="materialId">
+                    <div class="form-group">
+                        <label class="form-label">Material Title *</label>
+                        <input type="text" class="form-input" id="materialTitle" required>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="form-group">
+                            <label class="form-label">Type *</label>
+                            <select class="form-select" id="materialType" onchange="toggleMaterialInputs()">
+                                <option value="pdf">PDF Document</option>
+                                <option value="doc">Word Document</option>
+                                <option value="ppt">PowerPoint</option>
+                                <option value="video">Video</option>
+                                <option value="code">Code Snippet</option>
+                                <option value="link">External Link</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Assign to Course *</label>
+                            <select class="form-select" id="materialCourseId" required>
+                                <!-- Options will be populated -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="fileUploadSection">
+                        <div class="file-upload-area" id="fileDropArea" onclick="document.getElementById('fileInput').click()">
+                            <i class="fas fa-cloud-upload-alt fa-3x mb-4 text-primary"></i>
+                            <h4>Click to upload or drag & drop</h4>
+                            <p class="text-sm text-gray mt-2">Supports PDF, DOC, PPT, MP4, and code files (Max 10MB)</p>
+                            <input type="file" id="fileInput" class="hidden" onchange="handleFileUpload(this.files)">
+                        </div>
+                        <div id="filePreview" class="hidden"></div>
+                    </div>
+                    
+                    <div class="form-group hidden" id="materialCodeGroup">
+                        <label class="form-label">Code Content *</label>
+                        <div style="border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; height: 400px;">
+                            <textarea id="materialCodeEditor"></textarea>
+                        </div>
+                        <div class="flex gap-2 mt-2">
+                            <select class="form-select w-auto" id="codeLanguage" onchange="changeCodeLanguage()">
+                                <option value="htmlmixed">HTML</option>
+                                <option value="css">CSS</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="python">Python</option>
+                                <option value="clike">C++</option>
+                                <option value="java">Java</option>
+                            </select>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="formatCode()">
+                                <i class="fas fa-align-left"></i> Format
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="materialLinkGroup" style="display: none;">
+                        <label class="form-label">External Link *</label>
+                        <input type="url" class="form-input" id="materialLink" placeholder="https://example.com/document">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-textarea" id="materialDesc" rows="3" placeholder="Brief description of the material..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('materialModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Material</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="projectModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Save Project</h3>
+                <button class="close-modal" onclick="closeModal('projectModal')">&times;</button>
+            </div>
+            <form id="projectForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Project Name *</label>
+                        <input type="text" class="form-input" id="projectNameInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-textarea" id="projectDescriptionInput" rows="3" placeholder="Describe your project..."></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="form-group">
+                            <label class="form-label">Visibility</label>
+                            <select class="form-select" id="projectVisibilityInput">
+                                <option value="private">Private (Only me)</option>
+                                <option value="public">Public (Show on Leaderboard)</option>
+                                <option value="unlisted">Unlisted (Share with link)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" id="projectCategoryInput">
+                                <option value="web">Web Development</option>
+                                <option value="game">Game</option>
+                                <option value="tool">Tool</option>
+                                <option value="animation">Animation</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Tags (comma separated)</label>
+                        <input type="text" class="form-input" id="projectTagsInput" placeholder="html, css, javascript, web">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('projectModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Project</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="viewProjectModal">
+        <div class="modal-box" style="max-width: 1200px; width: 95%;">
+            <div class="modal-header">
+                <h3 id="viewProjectTitle">Project</h3>
+                <button class="close-modal" onclick="closeModal('viewProjectModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 0;">
+                <div class="editor-layout" style="height: 700px; margin: 0; border-radius: 0;">
+                    <div class="editor-pane">
+                        <div class="pane-header">
+                            <span><i class="fas fa-code"></i> Source Code</span>
+                            <button class="code-btn" onclick="copyProjectCode()">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                        <div class="pane-content">
+                            <textarea id="viewProjectEditor"></textarea>
+                        </div>
+                    </div>
+                    <div class="preview-pane">
+                        <div class="pane-header">
+                            <span><i class="fas fa-desktop"></i> Preview</span>
+                            <div class="flex gap-2">
+                                <button class="code-btn" onclick="refreshViewProjectPreview()">
+                                    <i class="fas fa-sync"></i> Refresh
+                                </button>
+                                <button class="code-btn" onclick="openViewProjectInNewTab()">
+                                    <i class="fas fa-external-link-alt"></i> Fullscreen
+                                </button>
+                            </div>
+                        </div>
+                        <div class="pane-content">
+                            <iframe id="viewProjectPreview"></iframe>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="flex justify-between items-center w-full">
+                    <div class="flex items-center gap-4">
+                        <button class="btn btn-outline" onclick="likeCurrentProject()" id="likeProjectBtn">
+                            <i class="fas fa-heart"></i> Like (<span id="projectLikesCount">0</span>)
+                        </button>
+                        <div class="text-sm text-gray" id="viewProjectAuthor">By: </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-secondary" onclick="closeModal('viewProjectModal')">Close</button>
+                        <button class="btn btn-primary" onclick="forkProject()" id="forkProjectBtn">
+                            <i class="fas fa-code-branch"></i> Fork Project
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- SCRIPTS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/php/php.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closetag.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/comment/comment.min.js"></script>
+
+    <script src="app.js"></script>
+    <script>
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeApp();
+        });
+    </script>
+</body>
+</html>
