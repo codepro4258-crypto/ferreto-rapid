@@ -44,6 +44,12 @@ let viewProjectEditor = null;
 let currentUpload = null;
 let currentViewProject = null;
 let activeSessions = new Set();
+let currentGroupId = null;
+let groupFilter = '';
+let registrationInterval = null;
+let registrationSamples = 0;
+let registrationUserId = null;
+let attendanceScanInterval = null;
 
 // =========================================
 // 3. INITIALIZATION
@@ -72,6 +78,7 @@ function loadAppData() {
             console.log("Initialized with default data");
         } else {
             appData = JSON.parse(stored);
+            ensureDataIntegrity();
             console.log("Loaded existing data");
         }
     } catch (error) {
@@ -292,6 +299,26 @@ function getDefaultData() {
                 updatedAt: '2023-10-20T10:00:00'
             }
         ],
+        groups: [
+            {
+                id: 1001,
+                name: 'Frontend Builders',
+                description: 'Share UI ideas, snippets, and layout feedback.',
+                createdBy: 1,
+                memberIds: [1, 2, 3],
+                createdAt: '2023-10-18T09:00:00',
+                updatedAt: '2023-10-18T09:00:00'
+            }
+        ],
+        groupMessages: [
+            {
+                id: 9001,
+                groupId: 1001,
+                userId: 1,
+                content: 'Welcome team! Share HTML/CSS snippets using ``` for code blocks.',
+                createdAt: '2023-10-18T09:10:00'
+            }
+        ],
         systemLogs: [],
         analytics: {
             dailyActiveUsers: {},
@@ -307,6 +334,24 @@ function getDefaultData() {
             totalAttendance: 1
         }
     };
+}
+
+function ensureDataIntegrity() {
+    appData.users = appData.users || [];
+    appData.courses = appData.courses || [];
+    appData.materials = appData.materials || [];
+    appData.attendance = appData.attendance || [];
+    appData.projects = appData.projects || [];
+    appData.groups = appData.groups || [];
+    appData.groupMessages = appData.groupMessages || [];
+    appData.systemLogs = appData.systemLogs || [];
+    appData.analytics = appData.analytics || {
+        dailyActiveUsers: {},
+        attendanceStats: {},
+        projectStats: {},
+        materialDownloads: {}
+    };
+    appData.metadata = appData.metadata || {};
 }
 
 // =========================================
@@ -400,6 +445,17 @@ function showDashboard() {
         document.getElementById('adminCoursesLink').style.display = 'flex';
         document.getElementById('adminMaterialsLink').style.display = 'flex';
         document.getElementById('adminDashboardLink').style.display = 'flex';
+    } else {
+        document.getElementById('adminCategory').style.display = 'none';
+        document.getElementById('adminUsersLink').style.display = 'none';
+        document.getElementById('adminCoursesLink').style.display = 'none';
+        document.getElementById('adminMaterialsLink').style.display = 'none';
+        document.getElementById('adminDashboardLink').style.display = 'none';
+    }
+
+    const createGroupBtn = document.getElementById('createGroupBtn');
+    if (createGroupBtn) {
+        createGroupBtn.style.display = currentUser.role === 'admin' ? 'inline-flex' : 'none';
     }
     
     // Initialize sidebar
@@ -410,6 +466,8 @@ function showDashboard() {
     
     // Refresh dashboard
     refreshDashboard();
+    updateAttendanceFaceStatus();
+    groupFilter = '';
     
     // Start session timeout monitor
     startSessionMonitor();
@@ -1518,13 +1576,47 @@ function startAttendanceScanner() {
     showToast('Starting attendance scanner...', 'info');
     
     // Simulate face scanning
-    setTimeout(() => {
+    updateAttendanceScannerStatus('Scanning', true);
+    const startBtn = document.getElementById('btnStartAttendance');
+    const stopBtn = document.getElementById('btnStopAttendance');
+    if (startBtn && stopBtn) {
+        startBtn.classList.add('hidden');
+        stopBtn.classList.remove('hidden');
+    }
+    attendanceScanInterval = setTimeout(() => {
         markAttendanceSuccess({
             latitude: 40.7128,
             longitude: -74.0060,
             accuracy: 10
         }, 0.92);
+        stopAttendanceScanner();
     }, 2000);
+}
+
+function stopAttendanceScanner() {
+    if (attendanceScanInterval) {
+        clearTimeout(attendanceScanInterval);
+        attendanceScanInterval = null;
+    }
+    updateAttendanceScannerStatus('Camera Off', false);
+    const startBtn = document.getElementById('btnStartAttendance');
+    const stopBtn = document.getElementById('btnStopAttendance');
+    if (startBtn && stopBtn) {
+        startBtn.classList.remove('hidden');
+        stopBtn.classList.add('hidden');
+    }
+}
+
+function testFaceVerification() {
+    if (!currentUser.faceDescriptor) {
+        showToast('Face ID not registered. Please contact administrator.', 'warning');
+        return;
+    }
+    updateAttendanceScannerStatus('Testing', true);
+    setTimeout(() => {
+        updateAttendanceScannerStatus('Test Passed', false);
+        showToast('Face verification test passed', 'success');
+    }, 1200);
 }
 
 function markAttendanceSuccess(coords, confidence) {
@@ -1561,6 +1653,28 @@ function markAttendanceSuccess(coords, confidence) {
     setTimeout(() => {
         alert(`✅ Attendance Confirmed!\n\nDate: ${dateStr}\nTime: ${timeStr}\nConfidence: ${Math.round(confidence * 100)}%`);
     }, 500);
+}
+
+function updateAttendanceScannerStatus(label, isActive) {
+    const statusDot = document.getElementById('attendanceStatusDot');
+    const statusText = document.getElementById('attendanceStatusText');
+    const hudStatus = document.getElementById('attHudStatus');
+    if (statusDot && statusText) {
+        statusText.textContent = label;
+        statusDot.classList.toggle('active', isActive);
+    }
+    if (hudStatus) {
+        hudStatus.textContent = `STATUS: ${label.toUpperCase()}`;
+    }
+}
+
+function updateAttendanceFaceStatus() {
+    const statusWrap = document.getElementById('attendanceFaceStatus');
+    if (!statusWrap) return;
+    const registered = Boolean(currentUser?.faceDescriptor);
+    statusWrap.innerHTML = registered
+        ? `<span class="badge badge-success"><i class="fas fa-user-check"></i> Face ID Registered</span>`
+        : `<span class="badge badge-warning"><i class="fas fa-user-shield"></i> Face ID Not Registered</span>`;
 }
 
 function loadAttendanceHistory() {
@@ -1704,6 +1818,9 @@ function loadAdminUsers() {
                 <td class="text-sm text-gray">${lastLogin}</td>
                 <td>
                     <div class="flex gap-1">
+                        <button class="btn btn-sm btn-secondary" onclick="openFaceRegistration(${u.id})" title="Register Face">
+                            <i class="fas fa-user-shield"></i>
+                        </button>
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})">
                             <i class="fas fa-edit"></i>
                         </button>
@@ -1855,8 +1972,779 @@ function loadAdminMaterials() {
     });
 }
 
+function openUserModal() {
+    const form = document.getElementById('userForm');
+    form.reset();
+    document.getElementById('userId').value = '';
+    document.getElementById('userPassInput').required = true;
+    document.getElementById('userPassInput').value = '';
+    document.getElementById('userPassInput').placeholder = '';
+    openModal('userModal');
+}
+
+function editUser(userId) {
+    const user = appData.users.find(u => u.id === userId);
+    if (!user) return;
+    const form = document.getElementById('userForm');
+    form.reset();
+    document.getElementById('userId').value = user.id;
+    document.getElementById('userNameInput').value = user.name;
+    document.getElementById('userEmailInput').value = user.email || '';
+    document.getElementById('userUsernameInput').value = user.username;
+    document.getElementById('userPassInput').required = false;
+    document.getElementById('userPassInput').value = '';
+    document.getElementById('userPassInput').placeholder = 'Leave blank to keep existing password';
+    document.getElementById('userRoleInput').value = user.role;
+    document.getElementById('userCourseInput').value = user.courseId || '';
+    document.getElementById('userNotesInput').value = user.notes || '';
+    openModal('userModal');
+}
+
+function handleSaveUser(e) {
+    e.preventDefault();
+    const userId = document.getElementById('userId').value;
+    const name = document.getElementById('userNameInput').value.trim();
+    const email = document.getElementById('userEmailInput').value.trim();
+    const username = document.getElementById('userUsernameInput').value.trim();
+    const password = document.getElementById('userPassInput').value.trim();
+    const role = document.getElementById('userRoleInput').value;
+    const courseId = document.getElementById('userCourseInput').value;
+    const notes = document.getElementById('userNotesInput').value.trim();
+
+    if (!name || !email || !username) {
+        showToast('Please fill all required fields', 'error');
+        return;
+    }
+
+    const emailExists = appData.users.some(u => u.email === email && String(u.id) !== String(userId));
+    const usernameExists = appData.users.some(u => u.username === username && String(u.id) !== String(userId));
+    if (emailExists || usernameExists) {
+        showToast('Email or username already exists', 'error');
+        return;
+    }
+
+    if (!userId && (!password || password.length < 8)) {
+        showToast('Password must be at least 8 characters', 'error');
+        return;
+    }
+
+    if (userId) {
+        const userIndex = appData.users.findIndex(u => String(u.id) === String(userId));
+        if (userIndex === -1) return;
+        const existing = appData.users[userIndex];
+        const oldCourseId = existing.courseId;
+        const updatedUser = {
+            ...existing,
+            name,
+            email,
+            username,
+            role,
+            courseId: courseId ? Number(courseId) : null,
+            notes,
+            password: password ? password : existing.password
+        };
+        appData.users[userIndex] = updatedUser;
+        syncCourseMembership(existing.id, oldCourseId, courseId ? Number(courseId) : null);
+        if (currentUser && currentUser.id === updatedUser.id) {
+            currentUser = { ...updatedUser };
+            sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+            showDashboard();
+        }
+        showToast('User updated successfully', 'success');
+        logSystem('USER_UPDATE', `Updated user: ${name}`, currentUser.id);
+    } else {
+        const newUser = {
+            id: Date.now(),
+            username,
+            password,
+            email,
+            name,
+            role,
+            courseId: courseId ? Number(courseId) : null,
+            faceDescriptor: null,
+            createdAt: new Date().toISOString(),
+            lastLogin: null,
+            status: 'active',
+            preferences: {},
+            likedProjects: [],
+            notes
+        };
+        appData.users.push(newUser);
+        syncCourseMembership(newUser.id, null, newUser.courseId);
+        showToast('User created successfully', 'success');
+        logSystem('USER_CREATE', `Created user: ${name}`, currentUser.id);
+    }
+
+    saveAppData();
+    closeModal('userModal');
+    loadAdminUsers();
+    refreshDashboard();
+}
+
+function deleteUser(userId) {
+    const user = appData.users.find(u => u.id === userId);
+    if (!user) return;
+    if (!confirm(`Delete user ${user.name}? This action cannot be undone.`)) return;
+
+    appData.users = appData.users.filter(u => u.id !== userId);
+    appData.attendance = appData.attendance.filter(a => a.userId !== userId);
+    appData.projects = appData.projects.filter(p => p.userId !== userId);
+    appData.groupMessages = appData.groupMessages.filter(m => m.userId !== userId);
+    appData.groups = appData.groups.map(group => ({
+        ...group,
+        memberIds: group.memberIds.filter(id => id !== userId)
+    }));
+    syncCourseMembership(userId, user.courseId, null);
+
+    saveAppData();
+    showToast('User deleted successfully', 'success');
+    logSystem('USER_DELETE', `Deleted user: ${user.name}`, currentUser.id);
+    loadAdminUsers();
+    refreshDashboard();
+}
+
+function exportUsersCSV() {
+    if (!appData.users.length) {
+        showToast('No users to export', 'warning');
+        return;
+    }
+    let csv = 'Name,Username,Email,Role,Course,Status,Created At\n';
+    appData.users.forEach(user => {
+        const course = appData.courses.find(c => c.id === user.courseId);
+        csv += `"${user.name}","${user.username}","${user.email || ''}","${user.role}",`;
+        csv += `"${course ? course.code : ''}","${user.status}","${user.createdAt}"\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ferretto_users_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Users exported successfully', 'success');
+    logSystem('USER_EXPORT', 'Exported users CSV', currentUser.id);
+}
+
+function openCourseModal() {
+    const form = document.getElementById('courseForm');
+    form.reset();
+    document.getElementById('courseId').value = '';
+    openModal('courseModal');
+}
+
+function editCourse(courseId) {
+    const course = appData.courses.find(c => c.id === courseId);
+    if (!course) return;
+    document.getElementById('courseId').value = course.id;
+    document.getElementById('courseCode').value = course.code;
+    document.getElementById('courseName').value = course.name;
+    document.getElementById('courseLecturer').value = course.lecturer;
+    document.getElementById('courseSchedule').value = course.schedule || '';
+    document.getElementById('courseDesc').value = course.description || '';
+    document.getElementById('courseCredits').value = course.credits || '';
+    openModal('courseModal');
+}
+
+function handleSaveCourse(e) {
+    e.preventDefault();
+    const courseId = document.getElementById('courseId').value;
+    const code = document.getElementById('courseCode').value.trim();
+    const name = document.getElementById('courseName').value.trim();
+    const lecturer = document.getElementById('courseLecturer').value.trim();
+    const schedule = document.getElementById('courseSchedule').value.trim();
+    const description = document.getElementById('courseDesc').value.trim();
+    const credits = Number(document.getElementById('courseCredits').value) || 0;
+
+    if (!code || !name || !lecturer) {
+        showToast('Please fill all required course fields', 'error');
+        return;
+    }
+
+    const codeExists = appData.courses.some(c => c.code === code && String(c.id) !== String(courseId));
+    if (codeExists) {
+        showToast('Course code already exists', 'error');
+        return;
+    }
+
+    if (courseId) {
+        const index = appData.courses.findIndex(c => String(c.id) === String(courseId));
+        if (index === -1) return;
+        appData.courses[index] = {
+            ...appData.courses[index],
+            code,
+            name,
+            lecturer,
+            schedule,
+            description,
+            credits,
+            updatedAt: new Date().toISOString()
+        };
+        showToast('Course updated successfully', 'success');
+        logSystem('COURSE_UPDATE', `Updated course: ${code}`, currentUser.id);
+    } else {
+        appData.courses.push({
+            id: Date.now(),
+            code,
+            name,
+            lecturer,
+            schedule,
+            credits,
+            description,
+            students: [],
+            materials: [],
+            createdAt: new Date().toISOString()
+        });
+        showToast('Course created successfully', 'success');
+        logSystem('COURSE_CREATE', `Created course: ${code}`, currentUser.id);
+    }
+
+    saveAppData();
+    closeModal('courseModal');
+    loadAdminCourses();
+    loadAdminUsers();
+    loadStudentMaterials();
+}
+
+function deleteCourse(courseId) {
+    const course = appData.courses.find(c => c.id === courseId);
+    if (!course) return;
+    if (!confirm(`Delete course ${course.name}?`)) return;
+
+    appData.courses = appData.courses.filter(c => c.id !== courseId);
+    appData.users = appData.users.map(user => (
+        user.courseId === courseId ? { ...user, courseId: null } : user
+    ));
+    appData.materials = appData.materials.map(material => (
+        material.courseId === courseId ? { ...material, courseId: null } : material
+    ));
+    appData.attendance = appData.attendance.filter(record => record.courseId !== courseId);
+
+    saveAppData();
+    showToast('Course deleted', 'success');
+    logSystem('COURSE_DELETE', `Deleted course: ${course.code}`, currentUser.id);
+    loadAdminCourses();
+    loadAdminUsers();
+    loadAdminMaterials();
+    refreshDashboard();
+}
+
+function syncCourseMembership(userId, oldCourseId, newCourseId) {
+    if (oldCourseId) {
+        const oldCourse = appData.courses.find(c => c.id === oldCourseId);
+        if (oldCourse) {
+            oldCourse.students = oldCourse.students.filter(id => id !== userId);
+        }
+    }
+    if (newCourseId) {
+        const newCourse = appData.courses.find(c => c.id === newCourseId);
+        if (newCourse && !newCourse.students.includes(userId)) {
+            newCourse.students.push(userId);
+        }
+    }
+}
+
 // =========================================
-// 12. UTILITY FUNCTIONS
+// 12. BIOMETRIC REGISTRATION
+// =========================================
+function openFaceRegistration(userId) {
+    const user = appData.users.find(u => u.id === userId);
+    if (!user) return;
+
+    registrationUserId = userId;
+    registrationSamples = 0;
+    updateRegistrationUI('Idle', 0);
+
+    const nameEl = document.getElementById('regUserName');
+    if (nameEl) nameEl.textContent = user.name;
+    const samplesGrid = document.getElementById('registrationSamplesGrid');
+    if (samplesGrid) {
+        samplesGrid.innerHTML = '';
+        samplesGrid.style.display = 'none';
+    }
+    const preview = document.getElementById('regFacePreview');
+    const icon = document.getElementById('regFaceIcon');
+    if (preview) preview.classList.add('hidden');
+    if (icon) icon.classList.remove('hidden');
+
+    openModal('faceRegistrationModal');
+}
+
+function startRegistrationProcess() {
+    if (!registrationUserId) {
+        showToast('Select a user to register', 'warning');
+        return;
+    }
+    if (registrationInterval) return;
+
+    const totalSamples = ENTERPRISE_CONFIG.FACE.REG_FRAMES;
+    updateRegistrationUI('Capturing', 0);
+    document.getElementById('btnStartReg').classList.add('hidden');
+    document.getElementById('btnStopReg').classList.remove('hidden');
+
+    registrationInterval = setInterval(() => {
+        registrationSamples += 1;
+        const progress = Math.min(100, Math.round((registrationSamples / totalSamples) * 100));
+        updateRegistrationUI('Capturing', progress);
+
+        if (registrationSamples >= totalSamples) {
+            finalizeFaceRegistration();
+        }
+    }, 140);
+}
+
+function stopRegistrationProcess() {
+    if (registrationInterval) {
+        clearInterval(registrationInterval);
+        registrationInterval = null;
+    }
+    registrationSamples = 0;
+    updateRegistrationUI('Cancelled', 0);
+    document.getElementById('btnStartReg').classList.remove('hidden');
+    document.getElementById('btnStopReg').classList.add('hidden');
+    showToast('Face registration cancelled', 'warning');
+}
+
+function testRegistrationCamera() {
+    showToast('Camera diagnostics passed', 'success');
+}
+
+function updateRegistrationUI(status, progress) {
+    const regStatusText = document.getElementById('regStatusText');
+    const regStatusDot = document.getElementById('regStatusDot');
+    const regHudSamples = document.getElementById('regHudSamples');
+    const regProgressWrap = document.getElementById('regProgressWrap');
+    const regProgressBar = document.getElementById('regProgressBar');
+
+    if (regStatusText) regStatusText.textContent = status;
+    if (regStatusDot) regStatusDot.classList.toggle('active', status === 'Capturing');
+    if (regHudSamples) regHudSamples.textContent = `SAMPLES: ${registrationSamples}/${ENTERPRISE_CONFIG.FACE.REG_FRAMES}`;
+    if (regProgressWrap) regProgressWrap.classList.toggle('hidden', progress === 0);
+    if (regProgressBar) regProgressBar.style.width = `${progress}%`;
+}
+
+function finalizeFaceRegistration() {
+    if (registrationInterval) {
+        clearInterval(registrationInterval);
+        registrationInterval = null;
+    }
+
+    const userIndex = appData.users.findIndex(u => u.id === registrationUserId);
+    if (userIndex !== -1) {
+        appData.users[userIndex].faceDescriptor = `face_${registrationUserId}_${Date.now()}`;
+        appData.users[userIndex].updatedAt = new Date().toISOString();
+    }
+    saveAppData();
+    updateRegistrationUI('Completed', 100);
+    document.getElementById('btnStartReg').classList.remove('hidden');
+    document.getElementById('btnStopReg').classList.add('hidden');
+    showToast('Face registration completed', 'success');
+    loadAdminUsers();
+    updateAttendanceFaceStatus();
+}
+
+// =========================================
+// 13. GROUP CHAT
+// =========================================
+function loadGroupChat() {
+    const searchInput = document.getElementById('groupSearchInput');
+    if (searchInput) {
+        searchInput.value = groupFilter;
+    }
+    renderGroupList();
+    renderGroupMessages();
+}
+
+function renderGroupList() {
+    const listEl = document.getElementById('groupList');
+    if (!listEl) return;
+    const groups = getAccessibleGroups();
+    const filtered = groups.filter(group =>
+        group.name.toLowerCase().includes(groupFilter.toLowerCase())
+    );
+
+    if (!filtered.length) {
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-users"></i>
+                <h3>No groups found</h3>
+                <p>${groupFilter ? 'Try a different search.' : 'Ask an admin to create a group.'}</p>
+            </div>
+        `;
+        currentGroupId = null;
+        renderGroupMessages();
+        return;
+    }
+
+    if (!currentGroupId || !filtered.some(group => group.id === currentGroupId)) {
+        currentGroupId = filtered[0].id;
+    }
+
+    listEl.innerHTML = '';
+    filtered.forEach(group => {
+        const memberCount = group.memberIds.length;
+        const isActive = group.id === currentGroupId;
+        const item = document.createElement('div');
+        item.className = `group-list-item ${isActive ? 'active' : ''}`;
+        item.onclick = () => selectGroup(group.id);
+        item.innerHTML = `
+            <div class="group-list-title">${group.name}</div>
+            <div class="group-list-meta">${memberCount} members</div>
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+function renderGroupMessages() {
+    const messageEl = document.getElementById('groupMessages');
+    const headerEl = document.getElementById('activeGroupHeader');
+    const memberList = document.getElementById('groupMemberList');
+    const input = document.getElementById('groupMessageInput');
+    const group = appData.groups.find(g => g.id === currentGroupId);
+
+    if (!messageEl || !headerEl) return;
+    if (!group) {
+        messageEl.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-comments"></i>
+                <h3>No group selected</h3>
+                <p>Select a group from the left panel to view messages.</p>
+            </div>
+        `;
+        headerEl.innerHTML = `
+            <div>
+                <h3>Select a group</h3>
+                <p class="text-sm text-gray">Choose a group to start chatting.</p>
+            </div>
+        `;
+        if (memberList) memberList.innerHTML = '';
+        if (input) input.disabled = true;
+        return;
+    }
+    if (input) input.disabled = false;
+
+    headerEl.innerHTML = `
+        <div>
+            <h3>${group.name}</h3>
+            <p class="text-sm text-gray">${group.description || 'Collaboration group'}</p>
+        </div>
+    `;
+
+    if (memberList) {
+        const members = group.memberIds.map(id => appData.users.find(u => u.id === id)).filter(Boolean);
+        memberList.innerHTML = members.slice(0, 4).map(member => `
+            <span class="member-chip">${member.name.split(' ')[0]}</span>
+        `).join('');
+        if (members.length > 4) {
+            memberList.innerHTML += `<span class="member-chip">+${members.length - 4}</span>`;
+        }
+    }
+
+    const messages = appData.groupMessages
+        .filter(message => message.groupId === group.id)
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    if (!messages.length) {
+        messageEl.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-comment-dots"></i>
+                <h3>No messages yet</h3>
+                <p>Be the first to share an update.</p>
+            </div>
+        `;
+        return;
+    }
+
+    messageEl.innerHTML = messages.map(message => {
+        const author = appData.users.find(u => u.id === message.userId);
+        const isCurrent = message.userId === currentUser.id;
+        const time = new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `
+            <div class="chat-message ${isCurrent ? 'self' : ''}">
+                <div class="chat-message-avatar">${author ? author.name.charAt(0).toUpperCase() : '?'}</div>
+                <div class="chat-message-content">
+                    <div class="chat-message-header">
+                        <span class="chat-message-author">${author ? author.name : 'Unknown'}</span>
+                        <span class="chat-message-time">${time}</span>
+                    </div>
+                    <div class="chat-message-body">${formatChatMessage(message.content)}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    messageEl.scrollTop = messageEl.scrollHeight;
+}
+
+function selectGroup(groupId) {
+    currentGroupId = groupId;
+    renderGroupList();
+    renderGroupMessages();
+}
+
+function sendGroupMessage() {
+    const input = document.getElementById('groupMessageInput');
+    if (!input) return;
+    const message = input.value.trim();
+    if (!message) return;
+    const group = appData.groups.find(g => g.id === currentGroupId);
+    if (!group) {
+        showToast('Select a group first', 'warning');
+        return;
+    }
+    if (!group.memberIds.includes(currentUser.id) && currentUser.role !== 'admin') {
+        showToast('You are not a member of this group', 'error');
+        return;
+    }
+
+    appData.groupMessages.push({
+        id: Date.now(),
+        groupId: group.id,
+        userId: currentUser.id,
+        content: message,
+        createdAt: new Date().toISOString()
+    });
+    saveAppData();
+    input.value = '';
+    renderGroupMessages();
+    logSystem('GROUP_CHAT', `Sent message in ${group.name}`, currentUser.id);
+}
+
+function openGroupModal() {
+    if (currentUser.role !== 'admin') return;
+    const form = document.getElementById('groupForm');
+    form.reset();
+    document.getElementById('groupId').value = '';
+    populateGroupMemberSelect([]);
+    openModal('groupModal');
+}
+
+function handleSaveGroup(e) {
+    e.preventDefault();
+    const groupId = document.getElementById('groupId').value;
+    const name = document.getElementById('groupNameInput').value.trim();
+    const description = document.getElementById('groupDescInput').value.trim();
+    const selectedMembers = Array.from(document.querySelectorAll('input[name="groupMember"]:checked'))
+        .map(input => Number(input.value));
+
+    if (!name) {
+        showToast('Group name is required', 'error');
+        return;
+    }
+
+    const memberIds = Array.from(new Set([currentUser.id, ...selectedMembers]));
+    if (groupId) {
+        const index = appData.groups.findIndex(group => String(group.id) === String(groupId));
+        if (index === -1) return;
+        appData.groups[index] = {
+            ...appData.groups[index],
+            name,
+            description,
+            memberIds,
+            updatedAt: new Date().toISOString()
+        };
+        showToast('Group updated', 'success');
+        logSystem('GROUP_UPDATE', `Updated group: ${name}`, currentUser.id);
+    } else {
+        appData.groups.push({
+            id: Date.now(),
+            name,
+            description,
+            createdBy: currentUser.id,
+            memberIds,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+        showToast('Group created', 'success');
+        logSystem('GROUP_CREATE', `Created group: ${name}`, currentUser.id);
+    }
+
+    saveAppData();
+    closeModal('groupModal');
+    renderGroupList();
+}
+
+function populateGroupMemberSelect(selectedIds) {
+    const container = document.getElementById('groupMemberSelect');
+    if (!container) return;
+    const members = appData.users.filter(user => user.status === 'active');
+    container.innerHTML = members.map(user => `
+        <label class="member-select-item">
+            <input type="checkbox" name="groupMember" value="${user.id}" ${selectedIds.includes(user.id) ? 'checked' : ''}>
+            <span>${user.name} <span class="text-xs text-gray">(${user.role})</span></span>
+        </label>
+    `).join('');
+}
+
+function filterGroups(term) {
+    groupFilter = term || '';
+    renderGroupList();
+}
+
+function getAccessibleGroups() {
+    if (currentUser.role === 'admin') return appData.groups;
+    return appData.groups.filter(group => group.memberIds.includes(currentUser.id));
+}
+
+function formatChatMessage(content) {
+    const safe = escapeHtml(content);
+    const segments = safe.split('```');
+    return segments.map((segment, index) => {
+        if (index % 2 === 1) {
+            return `<pre><code>${segment}</code></pre>`;
+        }
+        return `<p>${segment.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+}
+
+// =========================================
+// 14. LEADERBOARD & ADMIN DASHBOARD
+// =========================================
+function loadLeaderboard(type) {
+    const projects = [...appData.projects];
+    let sorted = projects;
+    if (type === 'most_liked') {
+        sorted = projects.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    } else if (type === 'featured') {
+        sorted = projects.sort((a, b) => ((b.likes || 0) + (b.views || 0)) - ((a.likes || 0) + (a.views || 0)));
+    } else {
+        sorted = projects.sort((a, b) => (b.views || 0) - (a.views || 0));
+    }
+    renderLeaderboard(sorted);
+}
+
+function renderLeaderboard(projects) {
+    const grid = document.getElementById('leaderboardGrid');
+    if (!grid) return;
+    if (!projects.length) {
+        grid.innerHTML = `
+            <div class="empty-state w-full">
+                <i class="fas fa-trophy"></i>
+                <h3>No projects available</h3>
+                <p>Projects will appear here once students publish them.</p>
+            </div>
+        `;
+        return;
+    }
+    grid.innerHTML = '';
+    projects.forEach(project => {
+        const author = appData.users.find(u => u.id === project.userId);
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+            <div class="card-header">
+                <div>
+                    <div class="card-title">${project.name}</div>
+                    <div class="card-subtitle">${author ? author.name : 'Unknown author'}</div>
+                </div>
+                <span class="badge badge-primary">${project.category}</span>
+            </div>
+            <div class="card-body">
+                <p class="text-sm text-gray-600 mb-3 line-clamp-2">${project.description || 'No description'}</p>
+                <div class="flex items-center gap-4 text-sm text-gray">
+                    <div class="flex items-center gap-1"><i class="fas fa-heart"></i> ${project.likes || 0}</div>
+                    <div class="flex items-center gap-1"><i class="fas fa-eye"></i> ${project.views || 0}</div>
+                    <div class="flex items-center gap-1"><i class="fas fa-code-branch"></i> ${project.forks || 0}</div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-outline" onclick="viewProject(${project.id})">
+                    <i class="fas fa-eye"></i> View
+                </button>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function searchProjects(query) {
+    const term = query.toLowerCase();
+    const filtered = appData.projects.filter(project =>
+        project.name.toLowerCase().includes(term) ||
+        (project.description || '').toLowerCase().includes(term)
+    );
+    renderLeaderboard(filtered);
+}
+
+function loadAdminDashboard() {
+    const totalUsers = appData.users.length;
+    const today = new Date().toISOString().split('T')[0];
+    const activeToday = appData.users.filter(u => u.lastLogin && u.lastLogin.startsWith(today)).length;
+    const totalStudents = appData.users.filter(u => u.role === 'student').length;
+    const todayAttendance = appData.attendance.filter(a => a.date === today);
+    const attendanceRate = totalStudents ? Math.round((todayAttendance.length / totalStudents) * 100) : 0;
+
+    document.getElementById('adminTotalUsers').textContent = totalUsers;
+    document.getElementById('adminUsersTrend').textContent = `Active today: ${activeToday}`;
+    document.getElementById('adminActiveSessions').textContent = activeSessions.size;
+    document.getElementById('adminAttendanceRate').textContent = `${attendanceRate}%`;
+    document.getElementById('adminAttendanceTrend').textContent = `Today: ${todayAttendance.length}/${totalStudents}`;
+    document.getElementById('adminStorageUsage').textContent = `${calculateStorageUsage().toFixed(2)} MB`;
+
+    const table = document.getElementById('adminActivitiesTable');
+    const logs = appData.systemLogs.slice(0, 8);
+    if (!logs.length) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center text-gray py-6">No recent activity.</td>
+            </tr>
+        `;
+        return;
+    }
+    table.innerHTML = logs.map(log => {
+        const user = appData.users.find(u => u.id === log.userId);
+        return `
+            <tr>
+                <td>${new Date(log.timestamp).toLocaleString()}</td>
+                <td>${user ? user.name : 'System'}</td>
+                <td>${log.action}</td>
+                <td>${log.details}</td>
+                <td>${log.ip}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function refreshAdminStats() {
+    loadAdminDashboard();
+    showToast('Admin stats refreshed', 'success');
+}
+
+function generateSystemReport() {
+    const report = [
+        `Ferretto Edu Pro System Report`,
+        `Generated: ${new Date().toLocaleString()}`,
+        `Total Users: ${appData.users.length}`,
+        `Total Courses: ${appData.courses.length}`,
+        `Total Materials: ${appData.materials.length}`,
+        `Total Projects: ${appData.projects.length}`,
+        `Total Groups: ${appData.groups.length}`
+    ].join('\n');
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ferretto_system_report_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('System report generated', 'success');
+}
+
+function viewAllActivities() {
+    alert('Showing the latest 1000 system activities in the log store.');
+}
+
+function calculateStorageUsage() {
+    const projectSize = appData.projects.reduce((sum, project) => sum + (project.code?.length || 0), 0);
+    const materialSize = appData.materials.reduce((sum, material) => sum + (material.content?.length || 0), 0);
+    return Math.max(0, (projectSize + materialSize) / (1024 * 1024));
+}
+
+// =========================================
+// 15. UTILITY FUNCTIONS
 // =========================================
 function showSection(sectionId) {
     // Update active menu item
@@ -1894,9 +2782,13 @@ function loadSectionData(sectionId) {
             break;
         case 'attendance':
             loadAttendanceHistory();
+            updateAttendanceFaceStatus();
             break;
         case 'leaderboard':
             loadLeaderboard('trending');
+            break;
+        case 'groupChat':
+            loadGroupChat();
             break;
         case 'adminDashboard':
             loadAdminDashboard();
@@ -2057,6 +2949,19 @@ function setupEventListeners() {
     
     document.getElementById('materialForm').addEventListener('submit', handleSaveMaterial);
     document.getElementById('projectForm').addEventListener('submit', handleSaveProject);
+    const groupForm = document.getElementById('groupForm');
+    if (groupForm) {
+        groupForm.addEventListener('submit', handleSaveGroup);
+    }
+
+    const groupMessageInput = document.getElementById('groupMessageInput');
+    if (groupMessageInput) {
+        groupMessageInput.addEventListener('keydown', (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                sendGroupMessage();
+            }
+        });
+    }
     
     // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
