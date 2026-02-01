@@ -1,484 +1,1109 @@
-
-
 /**
-• FERRETTO EDU PRO v3.0 - ENTERPRISE EDITION
-• Complete working system with all functionalities
-*/
-// =========================================
-// 1. ENTERPRISE CONFIGURATION
-// =========================================
-const ENTERPRISE_CONFIG = {
-APP_NAME: "Ferretto Edu Pro v3.0",
-VERSION: "3.0.1",
-BUILD_DATE: "2023-10-25",
-// Biometric Configuration FACE: { REG_FRAMES: 30, VERIFICATION_STEPS: 5, THRESHOLD: 0.85, HIGH_CONFIDENCE: 0.92, }, // Security SESSION_TIMEOUT: 30 * 60 * 1000, MAX_LOGIN_ATTEMPTS: 5, // Storage MAX_STORAGE_MB: 100, AUTO_SAVE_INTERVAL: 10000, // Features ENABLE_REAL_TIME: true, ENABLE_ANALYTICS: true, ENABLE_BACKUP: true 
+ * FERRETTO EDU PRO — FULL WORKING JS (Biometric Attendance + Admin/User)
+ * ✅ Works on Android / iOS / Desktop (Camera + Face Embeddings)
+ *
+ * HARD REQUIREMENTS (browser rules):
+ * 1) MUST run on HTTPS (or localhost) for camera permissions
+ * 2) Add in <head> of HTML:
+ *    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
+ *
+ * GOOD NEWS:
+ * - This JS is SELF-CONTAINED: if your HTML is missing UI, it auto-builds a working UI.
+ * - If your HTML already has elements, it will reuse them if IDs match.
+ *
+ * Default accounts:
+ *   admin / admin12345
+ *   student / student123
+ */
+
+// ================================
+// CONFIG
+// ================================
+const APP = {
+  name: "Ferretto Edu Pro — Biometric Attendance",
+  version: "4.0.0",
+  storageKey: "ferretto_edu_pro_data",
+  sessionKey: "ferretto_current_user",
+  // Face settings (mobile-friendly)
+  face: {
+    detector: "tiny", // "tiny" faster on phones; "full" more accurate but slower
+    matchThreshold: 0.62, // cosine similarity threshold (0..1)
+    regSamplesTarget: 20, // samples to collect during registration
+    regIntervalMs: 180,
+    scanTimeoutMs: 15000
+  },
+  modelsBase: "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/"
 };
-// =========================================
-// 2. GLOBAL VARIABLES
-// =========================================
-let currentUser = null;
+
 let appData = null;
-let mainEditor = null;
-let materialEditor = null;
-let viewProjectEditor = null;
-let currentUpload = null;
-let currentViewProject = null;
-let activeSessions = new Set();
-let currentGroupId = null;
-let groupFilter = '';
-let registrationInterval = null;
-let registrationSamples = 0;
-let registrationUserId = null;
-let attendanceScanInterval = null;
-// =========================================
-// 3. INITIALIZATION
-// =========================================
-function initializeApp() {
-loadAppData();
-checkAuth();
-setupEventListeners();
-initGeolocation();
-console.log(` 
-╔══════════════════════════════════════════════════════════════╗
-║ Ferretto Edu Pro v3.0 - Enterprise Edition ║
-║ All systems operational ║
-╚══════════════════════════════════════════════════════════════╝
-`);
+let currentUser = null;
+
+// Camera streams
+let regStream = null;
+let attStream = null;
+
+// Registration loop
+let regTimer = null;
+let regSamples = [];
+let regCount = 0;
+let regUserId = null;
+
+// Attendance loop
+let scanTimer = null;
+let bestSim = -1;
+
+// Models load flag
+let modelsLoaded = false;
+
+// ================================
+// BOOT
+// ================================
+document.addEventListener("DOMContentLoaded", () => {
+  injectBaseStyles();
+  ensureUI();          // ✅ builds UI if missing
+  loadAppData();
+  bindUI();
+  restoreSession();
+  updateSecureBanner();
+});
+
+// ================================
+// DATA
+// ================================
+function defaultData() {
+  return {
+    users: [
+      { id: 1, username: "admin", password: "admin12345", name: "System Admin", role: "admin", status: "active", faceDescriptor: null, createdAt: iso(), lastLogin: null },
+      { id: 2, username: "student", password: "student123", name: "Demo Student", role: "student", status: "active", faceDescriptor: null, createdAt: iso(), lastLogin: null }
+    ],
+    attendance: [],
+    logs: []
+  };
 }
+
 function loadAppData() {
-try {
-const stored = localStorage.getItem('ferretto_edu_pro_data');
-if (!stored) {
-// Create default data
-appData = getDefaultData();
-localStorage.setItem('ferretto_edu_pro_data', JSON.stringify(appData));
-console.log("Initialized with default data");
-} else {
-appData = JSON.parse(stored);
-ensureDataIntegrity();
-console.log("Loaded existing data");
+  try {
+    const raw = localStorage.getItem(APP.storageKey);
+    appData = raw ? JSON.parse(raw) : defaultData();
+    // Normalize descriptor format (store as plain number arrays)
+    appData.users = (appData.users || []).map(u => ({
+      ...u,
+      faceDescriptor: normalizeDescriptor(u.faceDescriptor)
+    }));
+    saveAppData();
+  } catch (e) {
+    console.error(e);
+    appData = defaultData();
+    saveAppData();
+  }
 }
-} catch (error) {
-console.error("Failed to load app data:", error);
-appData = getDefaultData();
-}
-}
+
 function saveAppData() {
-try {
-localStorage.setItem('ferretto_edu_pro_data', JSON.stringify(appData));
-return true;
-} catch (error) {
-console.error("Failed to save app data:", error);
-showToast("Failed to save data", "error");
-return false;
+  localStorage.setItem(APP.storageKey, JSON.stringify(appData));
 }
+
+function normalizeDescriptor(d) {
+  if (!d) return null;
+  if (Array.isArray(d)) return d;
+  if (d instanceof Float32Array) return Array.from(d);
+  if (typeof d === "object" && Array.isArray(d.data)) return d.data;
+  return null;
 }
-function getDefaultData() {
-return {
-users: [
-{
-id: 1,
-username: 'admin',
-password: 'admin12345',
-email: 'admin@ferretto.edu',
-name: 'System Administrator',
-role: 'admin',
-courseId: null,
-faceDescriptor: null,
-createdAt: '2023-01-01',
-lastLogin: null,
-status: 'active',
-preferences: {},
-likedProjects: [],
-notes: 'System administrator account'
-},
-{
-id: 2,
-username: 'student',
-password: 'student123',
-email: 'student@ferretto.edu',
-name: 'John Student',
-role: 'student',
-courseId: 101,
-faceDescriptor: null,
-createdAt: '2023-01-01',
-lastLogin: null,
-status: 'active',
-preferences: {},
-likedProjects: [],
-notes: 'Demo student account'
-},
-{
-id: 3,
-username: 'lecturer',
-password: 'lecturer123',
-email: 'lecturer@ferretto.edu',
-name: 'Dr. Sarah Connor',
-role: 'lecturer',
-courseId: 101,
-faceDescriptor: null,
-createdAt: '2023-01-01',
-lastLogin: null,
-status: 'active',
-preferences: {},
-likedProjects: [],
-notes: 'Demo lecturer account'
+
+function iso() { return new Date().toISOString(); }
+function today() { return new Date().toISOString().split("T")[0]; }
+function nowTime() { return new Date().toTimeString().split(" ")[0]; }
+
+// ================================
+// SESSION + AUTH
+// ================================
+function restoreSession() {
+  const raw = sessionStorage.getItem(APP.sessionKey);
+  if (!raw) return showLogin();
+  try {
+    const u = JSON.parse(raw);
+    const fresh = appData.users.find(x => x.id === u.id);
+    if (!fresh || fresh.status !== "active") return showLogin();
+    currentUser = fresh;
+    showDashboard();
+  } catch {
+    showLogin();
+  }
 }
-],
-courses: [
-{
-id: 101,
-code: 'CS101',
-name: 'Introduction to Web Development',
-lecturer: 'Dr. Sarah Connor',
-schedule: 'Mon, Wed 09:00 AM',
-credits: 3,
-description: 'Comprehensive introduction to HTML, CSS, and JavaScript. Learn to build modern responsive websites.',
-students: [2],
-materials: [1, 2],
-createdAt: '2023-09-01'
-},
-{
-id: 102,
-code: 'CS202',
-name: 'Data Structures & Algorithms',
-lecturer: 'Prof. Alan Turing',
-schedule: 'Tue, Thu 11:00 AM',
-credits: 4,
-description: 'Advanced study of data structures, algorithms, and computational complexity.',
-students: [],
-materials: [],
-createdAt: '2023-09-01'
+
+function login(username, password) {
+  username = (username || "").trim();
+  password = (password || "").trim();
+  const user = appData.users.find(u => u.username === username && u.password === password && u.status === "active");
+  if (!user) return toast("Invalid username or password", "error");
+
+  user.lastLogin = iso();
+  saveAppData();
+  currentUser = user;
+  sessionStorage.setItem(APP.sessionKey, JSON.stringify({ id: user.id }));
+  log("LOGIN", `${user.username} logged in`);
+  toast(`Welcome, ${user.name}`, "success");
+  showDashboard();
 }
-],
-materials: [
-{
-id: 1,
-courseId: 101,
-title: 'HTML5 Complete Guide',
-type: 'pdf',
-content: 'https://example.com/html5-guide.pdf',
-description: 'Complete reference guide for HTML5 elements and APIs.',
-fileSize: '2.4 MB',
-downloads: 0,
-tags: ['html', 'web', 'beginners'],
-date: '2023-10-01',
-author: 'Dr. Sarah Connor'
-},
-{
-id: 2,
-courseId: 101,
-title: 'CSS Flexbox Examples',
-type: 'code',
-content: .container {\n display: flex;\n justify-content: center;\n align-items: center;\n}\n\n.item {\n flex: 1;\n margin: 10px;\n},
-description: 'Practical examples of CSS Flexbox layouts.',
-fileSize: '15 KB',
-downloads: 0,
-tags: ['css', 'layout', 'flexbox'],
-language: 'css',
-date: '2023-10-05',
-author: 'Dr. Sarah Connor'
-},
-{
-id: 3,
-courseId: 101,
-title: 'JavaScript Basics Tutorial',
-type: 'link',
-content: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript',
-description: 'MDN Web Docs JavaScript tutorial for beginners.',
-fileSize: 'N/A',
-downloads: 0,
-tags: ['javascript', 'tutorial', 'mdn'],
-date: '2023-10-10',
-author: 'Dr. Sarah Connor'
+
+function logout() {
+  stopAttendanceScan();
+  stopFaceRegistration();
+
+  log("LOGOUT", `${currentUser?.username || "unknown"} logged out`);
+  currentUser = null;
+  sessionStorage.removeItem(APP.sessionKey);
+  showLogin();
 }
-],
-attendance: [
-{
-id: 1,
-userId: 2,
-courseId: 101,
-date: new Date().toISOString().split('T')[0],
-time: '09:05:22',
-lat: 40.7128,
-lng: -74.0060,
-confidence: 0.94,
-status: 'Present',
-method: 'Face Scan',
-notes: 'On time',
-verified: true
+
+// ================================
+// UI BUILD (AUTO) — makes it work even if your HTML is empty
+// ================================
+function ensureUI() {
+  const rootExists = document.getElementById("ferrettoAppRoot");
+  if (rootExists) return;
+
+  const root = document.createElement("div");
+  root.id = "ferrettoAppRoot";
+  root.innerHTML = `
+  <div class="fx-topbar">
+    <div class="fx-brand">
+      <div class="fx-logo">F</div>
+      <div>
+        <div class="fx-title">${APP.name}</div>
+        <div class="fx-subtitle">v${APP.version}</div>
+      </div>
+    </div>
+    <div class="fx-right">
+      <div id="secureBadge" class="fx-badge fx-badge-warn">Checking…</div>
+      <button id="btnLogout" class="fx-btn fx-btn-ghost" style="display:none;">Logout</button>
+    </div>
+  </div>
+
+  <div class="fx-container">
+    <!-- LOGIN -->
+    <section id="loginPage" class="fx-card fx-login">
+      <h2>Login</h2>
+      <p class="fx-muted">Use <b>admin/admin12345</b> or <b>student/student123</b></p>
+      <form id="loginForm" class="fx-form">
+        <label>Username</label>
+        <input id="username" autocomplete="username" required />
+        <label>Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button class="fx-btn fx-btn-primary" type="submit">Sign In</button>
+      </form>
+      <div class="fx-small fx-muted">
+        Camera works only on <b>HTTPS</b> or <b>localhost</b>.
+      </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="dashboardPage" class="fx-grid" style="display:none;">
+      <div class="fx-card">
+        <h3>Account</h3>
+        <div class="fx-row">
+          <div class="fx-pill" id="meName">—</div>
+          <div class="fx-pill" id="meRole">—</div>
+        </div>
+        <div id="faceStatus" class="fx-muted" style="margin-top:10px;">—</div>
+      </div>
+
+      <div class="fx-card">
+        <h3>Attendance</h3>
+        <div class="fx-row fx-gap">
+          <button id="btnTestFace" class="fx-btn fx-btn-ghost">Test Face</button>
+          <button id="btnStartAttendance" class="fx-btn fx-btn-primary">Start Scan</button>
+          <button id="btnStopAttendance" class="fx-btn fx-btn-danger" style="display:none;">Stop</button>
+        </div>
+        <div class="fx-scanbox">
+          <div class="fx-scanhead">
+            <div><b>Status:</b> <span id="attStatusText">Camera Off</span></div>
+            <div class="fx-muted"><span id="attHint">Look at camera in good light</span></div>
+          </div>
+          <video id="attVideo" autoplay muted playsinline></video>
+        </div>
+        <div class="fx-row fx-gap" style="margin-top:10px;">
+          <button id="btnExportCSV" class="fx-btn fx-btn-ghost">Export CSV</button>
+          <button id="btnClearMyAttendance" class="fx-btn fx-btn-ghost">Clear My Records</button>
+        </div>
+      </div>
+
+      <div class="fx-card fx-span2">
+        <h3>Attendance History</h3>
+        <div class="fx-tablewrap">
+          <table class="fx-table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Time</th><th>Similarity</th><th>Lat</th><th>Lng</th><th>Accuracy</th><th>Method</th>
+              </tr>
+            </thead>
+            <tbody id="attendanceTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMIN -->
+      <div id="adminPanel" class="fx-card fx-span2" style="display:none;">
+        <div class="fx-row fx-between">
+          <h3>Admin — Users</h3>
+          <button id="btnAddUser" class="fx-btn fx-btn-primary">Add User</button>
+        </div>
+        <div class="fx-tablewrap">
+          <table class="fx-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>Username</th><th>Role</th><th>Face</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable"></tbody>
+          </table>
+        </div>
+        <div class="fx-muted fx-small">Register face from a phone for best camera results.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- MODAL: Add/Edit User -->
+  <div id="userModal" class="fx-modal" style="display:none;">
+    <div class="fx-modal-card">
+      <div class="fx-row fx-between">
+        <h3 id="userModalTitle">Add User</h3>
+        <button class="fx-btn fx-btn-ghost" id="btnCloseUserModal">✕</button>
+      </div>
+      <form id="userForm" class="fx-form" style="margin-top:10px;">
+        <input id="userId" type="hidden" />
+        <label>Name</label>
+        <input id="userName" required />
+        <label>Username</label>
+        <input id="userUsername" required />
+        <label>Password</label>
+        <input id="userPassword" type="password" required />
+        <label>Role</label>
+        <select id="userRole">
+          <option value="student">student</option>
+          <option value="admin">admin</option>
+        </select>
+        <div class="fx-row fx-gap" style="margin-top:10px;">
+          <button class="fx-btn fx-btn-primary" type="submit">Save</button>
+          <button class="fx-btn fx-btn-ghost" type="button" id="btnCancelUserModal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Face Registration -->
+  <div id="faceModal" class="fx-modal" style="display:none;">
+    <div class="fx-modal-card">
+      <div class="fx-row fx-between">
+        <h3>Register Face: <span id="regUserName">—</span></h3>
+        <button class="fx-btn fx-btn-ghost" id="btnCloseFaceModal">✕</button>
+      </div>
+      <div class="fx-muted fx-small">Good light + keep face centered. Collects ${APP.face.regSamplesTarget} samples.</div>
+      <div class="fx-scanbox" style="margin-top:10px;">
+        <div class="fx-scanhead">
+          <div><b>Status:</b> <span id="regStatus">Idle</span></div>
+          <div><b>Samples:</b> <span id="regCount">0</span>/${APP.face.regSamplesTarget}</div>
+        </div>
+        <video id="regVideo" autoplay muted playsinline></video>
+        <div class="fx-progress"><div id="regBar" class="fx-progress-bar"></div></div>
+      </div>
+      <div class="fx-row fx-gap" style="margin-top:10px;">
+        <button id="btnStartReg" class="fx-btn fx-btn-primary">Start Registration</button>
+        <button id="btnStopReg" class="fx-btn fx-btn-danger" style="display:none;">Stop</button>
+        <button id="btnTestRegCam" class="fx-btn fx-btn-ghost">Test Camera</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="fx-toast-wrap"></div>
+  `;
+  document.body.appendChild(root);
 }
-],
-projects: [
-{
-id: 1,
-userId: 2,
-name: 'My First Website',
-code: `
-My Website body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; } .container { max-width: 800px; margin: 0 auto; text-align: center; padding: 40px; background: rgba(255, 255, 255, 0.1); border-radius: 20px; backdrop-filter: blur(10px); } h1 { font-size: 3rem; margin-bottom: 20px; } button { background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: all 0.3s; } button:hover { background: #4338ca; transform: translateY(-2px); } 
-Welcome to My Website!
-This is my first web project created in Ferretto Edu Pro.
-Click Me! 
-`, visibility: 'public', category: 'web', tags: ['html', 'css', 'javascript', 'beginners'], description: 'A simple responsive website with modern design', likes: 5, views: 42, forks: 3, createdAt: '2023-10-20T10:00:00', updatedAt: '2023-10-20T10:00:00' } ], groups: [ { id: 1001, name: 'Frontend Builders', description: 'Share UI ideas, snippets, and layout feedback.', createdBy: 1, memberIds: [1, 2, 3], createdAt: '2023-10-18T09:00:00', updatedAt: '2023-10-18T09:00:00' } ], groupMessages: [ { id: 9001, groupId: 1001, userId: 1, content: 'Welcome team! Share HTML/CSS snippets using ``` for code blocks.', createdAt: '2023-10-18T09:10:00' } ], systemLogs: [], analytics: { dailyActiveUsers: {}, attendanceStats: {}, projectStats: {}, materialDownloads: {} }, metadata: { version: ENTERPRISE_CONFIG.VERSION, lastBackup: null, totalUsers: 3, totalProjects: 1, totalAttendance: 1 } }; } 
-function ensureDataIntegrity() {
-appData.users = appData.users || [];
-appData.courses = appData.courses || [];
-appData.materials = appData.materials || [];
-appData.attendance = appData.attendance || [];
-appData.projects = appData.projects || [];
-appData.groups = appData.groups || [];
-appData.groupMessages = appData.groupMessages || [];
-appData.systemLogs = appData.systemLogs || [];
-appData.analytics = appData.analytics || {
-dailyActiveUsers: {},
-attendanceStats: {},
-projectStats: {},
-materialDownloads: {}
-};
-appData.metadata = appData.metadata || {};
+
+function injectBaseStyles() {
+  if (document.getElementById("ferrettoBaseStyles")) return;
+  const s = document.createElement("style");
+  s.id = "ferrettoBaseStyles";
+  s.textContent = `
+    :root{--bg:#0b1020;--card:#121a33;--muted:#9fb0ff;--text:#e8eeff;--line:rgba(255,255,255,.08);
+      --pri:#4f46e5;--danger:#ef4444;--ok:#22c55e;--warn:#f59e0b;}
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+    body{margin:0;background:radial-gradient(1200px 600px at 10% 0%, #1a2a6c 0%, rgba(26,42,108,0) 60%),
+                      radial-gradient(1200px 600px at 90% 0%, #b21f1f 0%, rgba(178,31,31,0) 60%),
+                      var(--bg);color:var(--text);}
+    .fx-topbar{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;
+      padding:12px 16px;background:rgba(5,8,18,.75);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+    .fx-brand{display:flex;gap:10px;align-items:center;}
+    .fx-logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#4f46e5,#22c55e);
+      display:flex;align-items:center;justify-content:center;font-weight:800;}
+    .fx-title{font-weight:800;letter-spacing:.2px}
+    .fx-subtitle{font-size:12px;color:rgba(232,238,255,.7)}
+    .fx-right{display:flex;gap:10px;align-items:center;}
+    .fx-container{max-width:1100px;margin:0 auto;padding:16px;}
+    .fx-card{background:rgba(18,26,51,.85);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);}
+    .fx-login{max-width:420px;margin:32px auto;}
+    .fx-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+    .fx-span2{grid-column:1 / -1;}
+    @media (max-width:900px){.fx-grid{grid-template-columns:1fr;}.fx-span2{grid-column:auto;}}
+    .fx-form{display:flex;flex-direction:column;gap:10px;}
+    label{font-size:12px;color:rgba(232,238,255,.75)}
+    input,select{padding:12px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:var(--text);outline:none;}
+    input:focus,select:focus{border-color:rgba(79,70,229,.8);box-shadow:0 0 0 3px rgba(79,70,229,.18);}
+    .fx-btn{border:1px solid var(--line);background:rgba(0,0,0,.18);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:700;}
+    .fx-btn:hover{transform:translateY(-1px);transition:.12s;}
+    .fx-btn-primary{background:linear-gradient(135deg,#4f46e5,#6d28d9);border-color:rgba(255,255,255,.12);}
+    .fx-btn-danger{background:linear-gradient(135deg,#ef4444,#b91c1c);border-color:rgba(255,255,255,.12);}
+    .fx-btn-ghost{background:rgba(255,255,255,.06);}
+    .fx-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .fx-between{justify-content:space-between;}
+    .fx-gap{gap:8px;}
+    .fx-pill{padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);font-weight:700;}
+    .fx-muted{color:rgba(232,238,255,.72)}
+    .fx-small{font-size:12px}
+    .fx-badge{padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;font-weight:800;}
+    .fx-badge-ok{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.35);color:#b7f7d0;}
+    .fx-badge-warn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.35);color:#ffe3b1;}
+    .fx-badge-bad{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.35);color:#ffc3c3;}
+    .fx-scanbox{margin-top:10px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:rgba(0,0,0,.22);}
+    .fx-scanhead{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px;border-bottom:1px solid var(--line);font-size:12px;}
+    video{width:100%;height:auto;display:block;background:#000;}
+    .fx-progress{height:10px;background:rgba(255,255,255,.06);}
+    .fx-progress-bar{height:10px;width:0%;background:linear-gradient(90deg,#22c55e,#4f46e5);}
+    .fx-tablewrap{overflow:auto;border:1px solid var(--line);border-radius:14px;}
+    .fx-table{width:100%;border-collapse:collapse;min-width:760px;}
+    .fx-table th,.fx-table td{padding:10px;border-bottom:1px solid var(--line);font-size:12px;white-space:nowrap;}
+    .fx-table th{position:sticky;top:0;background:rgba(18,26,51,.95);text-align:left;}
+    .fx-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:14px;z-index:50;}
+    .fx-modal-card{width:min(720px,100%);background:rgba(18,26,51,.95);border:1px solid var(--line);border-radius:16px;padding:14px;}
+    .fx-toast-wrap{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:10px;z-index:60;}
+    .fx-toast{padding:10px 12px;border-radius:14px;border:1px solid var(--line);background:rgba(18,26,51,.95);
+      box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center;max-width:360px;}
+    .fx-dot{width:10px;height:10px;border-radius:50%;}
+  `;
+  document.head.appendChild(s);
 }
-// =========================================
-// 4. AUTHENTICATION & SESSION MANAGEMENT
-// =========================================
-function checkAuth() {
-const storedUser = sessionStorage.getItem('currentUser');
-if (storedUser) {
-currentUser = JSON.parse(storedUser);
-activeSessions.add(currentUser.id);
-showDashboard();
-} else {
-showLogin();
+
+// ================================
+// UI BIND
+// ================================
+function bindUI() {
+  // Login
+  byId("loginForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    login(byId("username").value, byId("password").value);
+  });
+
+  // Logout
+  byId("btnLogout").addEventListener("click", logout);
+
+  // Attendance
+  byId("btnStartAttendance").addEventListener("click", startAttendanceScan);
+  byId("btnStopAttendance").addEventListener("click", stopAttendanceScan);
+  byId("btnTestFace").addEventListener("click", testFace);
+
+  byId("btnExportCSV").addEventListener("click", exportCSV);
+  byId("btnClearMyAttendance").addEventListener("click", () => {
+    if (!confirm("Clear your attendance records?")) return;
+    appData.attendance = appData.attendance.filter(a => a.userId !== currentUser.id);
+    saveAppData();
+    renderAttendance();
+    toast("Cleared your records", "success");
+  });
+
+  // Admin users
+  byId("btnAddUser").addEventListener("click", () => openUserModal());
+  byId("btnCloseUserModal").addEventListener("click", closeUserModal);
+  byId("btnCancelUserModal").addEventListener("click", closeUserModal);
+  byId("userForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveUserFromModal();
+  });
+
+  // Face modal
+  byId("btnCloseFaceModal").addEventListener("click", closeFaceModal);
+  byId("btnStartReg").addEventListener("click", startFaceRegistration);
+  byId("btnStopReg").addEventListener("click", stopFaceRegistration);
+  byId("btnTestRegCam").addEventListener("click", testRegCamera);
+
+  // Close modals clicking outside card
+  byId("userModal").addEventListener("click", (e) => { if (e.target.id === "userModal") closeUserModal(); });
+  byId("faceModal").addEventListener("click", (e) => { if (e.target.id === "faceModal") closeFaceModal(); });
 }
-}
-function handleLogin(e) {
-e.preventDefault();
-const username = document.getElementById('username').value.trim(); const password = document.getElementById('password').value.trim(); if (!username || !password) { showToast('Please enter both username and password', 'error'); return; } const user = appData.users.find(u => u.username === username && u.password === password && u.status === 'active' ); if (user) { currentUser = user; activeSessions.add(user.id); // Update last login const userIndex = appData.users.findIndex(u => u.id === user.id); if (userIndex > -1) { appData.users[userIndex].lastLogin = new Date().toISOString(); saveAppData(); } sessionStorage.setItem('currentUser', JSON.stringify(user)); logSystem('LOGIN', `User ${username} logged in`, user.id); showToast(`Welcome back, ${user.name}!`, 'success'); showDashboard(); } else { logSystem('LOGIN_FAILED', `Failed login attempt for username: ${username}`); showToast('Invalid username or password', 'error'); } 
-}
-function handleLogout() {
-if (currentUser) {
-logSystem('LOGOUT', User ${currentUser.username} logged out, currentUser.id);
-activeSessions.delete(currentUser.id);
-}
-currentUser = null; sessionStorage.removeItem('currentUser'); showLogin(); showToast('Logged out successfully', 'info'); 
-}
+
+// ================================
+// SHOW PAGES
+// ================================
 function showLogin() {
-document.getElementById('loginPage').style.display = 'flex';
-document.getElementById('dashboardPage').classList.remove('active');
-document.getElementById('loginForm').reset();
-setTimeout(() => { document.getElementById('username').focus(); }, 100); 
+  byId("btnLogout").style.display = "none";
+  byId("loginPage").style.display = "block";
+  byId("dashboardPage").style.display = "none";
+  byId("loginForm").reset();
+  byId("username").focus();
 }
+
 function showDashboard() {
-document.getElementById('loginPage').style.display = 'none';
-document.getElementById('dashboardPage').classList.add('active');
-// Update user info document.getElementById('userName').textContent = currentUser.name; document.getElementById('userRole').textContent = currentUser.role.toUpperCase(); document.getElementById('userAvatar').textContent = currentUser.name.charAt(0).toUpperCase(); document.getElementById('dropdownUserName').textContent = currentUser.name; document.getElementById('welcomeName').textContent = currentUser.name; // Show/hide admin sections if (currentUser.role === 'admin') { document.getElementById('adminCategory').style.display = 'block'; document.getElementById('adminUsersLink').style.display = 'flex'; document.getElementById('adminCoursesLink').style.display = 'flex'; document.getElementById('adminMaterialsLink').style.display = 'flex'; document.getElementById('adminDashboardLink').style.display = 'flex'; } else { document.getElementById('adminCategory').style.display = 'none'; document.getElementById('adminUsersLink').style.display = 'none'; document.getElementById('adminCoursesLink').style.display = 'none'; document.getElementById('adminMaterialsLink').style.display = 'none'; document.getElementById('adminDashboardLink').style.display = 'none'; } const createGroupBtn = document.getElementById('createGroupBtn'); if (createGroupBtn) { createGroupBtn.style.display = currentUser.role === 'admin' ? 'inline-flex' : 'none'; } // Initialize sidebar initSidebar(); // Initialize CodeMirror editors initCodeEditors(); // Refresh dashboard refreshDashboard(); updateAttendanceFaceStatus(); groupFilter = ''; // Start session timeout monitor startSessionMonitor(); 
+  byId("btnLogout").style.display = "inline-block";
+  byId("loginPage").style.display = "none";
+  byId("dashboardPage").style.display = "grid";
+
+  // Update header
+  byId("meName").textContent = currentUser.name;
+  byId("meRole").textContent = currentUser.role.toUpperCase();
+
+  // Admin panel visibility
+  byId("adminPanel").style.display = currentUser.role === "admin" ? "block" : "none";
+
+  // Refresh data UI
+  updateFaceStatus();
+  renderAttendance();
+  if (currentUser.role === "admin") renderUsers();
 }
-function startSessionMonitor() {
-setInterval(() => {
-const lastActivity = sessionStorage.getItem('lastActivity');
-if (lastActivity && (Date.now() - parseInt(lastActivity) > ENTERPRISE_CONFIG.SESSION_TIMEOUT)) {
-showToast('Session timeout due to inactivity', 'warning');
-handleLogout();
+
+function updateFaceStatus() {
+  const me = appData.users.find(u => u.id === currentUser.id);
+  const has = !!me?.faceDescriptor;
+  byId("faceStatus").innerHTML = has
+    ? `✅ Face Registered <span class="fx-muted">(ready to mark attendance)</span>`
+    : `⚠️ Face NOT Registered <span class="fx-muted">(admin must register your face)</span>`;
 }
-}, 60000);
+
+// ================================
+// SECURITY BANNER
+// ================================
+function updateSecureBanner() {
+  const b = byId("secureBadge");
+  const ok = isSecureContextOK();
+  if (ok) {
+    b.className = "fx-badge fx-badge-ok";
+    b.textContent = "HTTPS OK";
+  } else {
+    b.className = "fx-badge fx-badge-bad";
+    b.textContent = "NOT HTTPS";
+  }
 }
-function updateActivity() {
-sessionStorage.setItem('lastActivity', Date.now().toString());
+
+function isSecureContextOK() {
+  return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
 }
-// =========================================
-// 5. DASHBOARD FUNCTIONS
-// =========================================
-function refreshDashboard() {
-if (!currentUser) return;
-// Update course info if (currentUser.courseId) { const course = appData.courses.find(c => c.id == currentUser.courseId); if (course) { document.getElementById('statCourseName').textContent = course.name; document.getElementById('statCourseCode').textContent = course.code; } else { document.getElementById('statCourseName').textContent = 'Unassigned'; document.getElementById('statCourseCode').textContent = 'Contact Admin'; } } else { document.getElementById('statCourseName').textContent = 'No Course'; document.getElementById('statCourseCode').textContent = '-'; } // Update projects count const myProjects = appData.projects.filter(p => p.userId === currentUser.id); document.getElementById('statProjects').textContent = myProjects.length; // Update likes const totalLikes = myProjects.reduce((sum, p) => sum + (p.likes || 0), 0); document.getElementById('statLikes').textContent = totalLikes; // Update attendance const myAttendance = appData.attendance.filter(a => a.userId === currentUser.id); const present = myAttendance.filter(a => a.status === 'Present').length; const rate = myAttendance.length > 0 ? Math.round((present / myAttendance.length) * 100) : 0; document.getElementById('statAttendance').textContent = rate + '%'; const today = new Date().toISOString().split('T')[0]; const todayPresent = myAttendance.filter(a => a.date === today && a.status === 'Present').length > 0; // Update recent activity updateRecentActivity(); // Update attendance badge updateAttendanceBadge(); 
+
+// ================================
+// ADMIN: USERS
+// ================================
+function renderUsers() {
+  const tbody = byId("usersTable");
+  tbody.innerHTML = "";
+
+  const users = appData.users.slice().sort((a,b)=>a.id-b.id);
+  users.forEach(u => {
+    const tr = document.createElement("tr");
+    const face = u.faceDescriptor ? "✅ Registered" : "❌ Not set";
+    tr.innerHTML = `
+      <td>${escapeHtml(u.name)}</td>
+      <td>${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.role)}</td>
+      <td>${face}</td>
+      <td>
+        <button class="fx-btn fx-btn-ghost" data-act="reg" data-id="${u.id}">Register Face</button>
+        <button class="fx-btn fx-btn-ghost" data-act="edit" data-id="${u.id}">Edit</button>
+        ${u.id === 1 ? "" : `<button class="fx-btn fx-btn-danger" data-act="del" data-id="${u.id}">Delete</button>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll("button[data-act]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-id"));
+      const act = btn.getAttribute("data-act");
+      if (act === "reg") openFaceModal(id);
+      if (act === "edit") openUserModal(id);
+      if (act === "del") deleteUser(id);
+    });
+  });
 }
-function updateRecentActivity() {
-const tbody = document.getElementById('recentActivityTable');
-tbody.innerHTML = '';
-// Get recent activities const activities = []; // Add recent attendance const recentAtt = appData.attendance .filter(a => a.userId === currentUser.id) .slice(-3) .reverse(); recentAtt.forEach(att => { const course = appData.courses.find(c => c.id == att.courseId); activities.push({ date: `${att.date} ${att.time || ''}`, activity: 'Attendance', details: course ? course.name : 'General', status: att.status }); }); // Add recent project saves const recentProjects = appData.projects .filter(p => p.userId === currentUser.id) .slice(-2) .reverse(); recentProjects.forEach(proj => { activities.push({ date: new Date(proj.createdAt).toLocaleDateString(), activity: 'Project Created', details: proj.name, status: proj.visibility === 'public' ? 'Public' : 'Private' }); }); // Display if (activities.length === 0) { tbody.innerHTML = ` <tr> <td colspan="4" class="text-center text-gray py-8"> <i class="fas fa-inbox fa-2x mb-4 opacity-30"></i> <p>No recent activity</p> </td> </tr> `; } else { activities.forEach(act => { const statusClass = act.status === 'Present' || act.status === 'Public' ? 'badge-success' : act.status === 'Absent' ? 'badge-danger' : 'badge-info'; tbody.innerHTML += ` <tr> <td class="font-medium">${act.date}</td> <td>${act.activity}</td> <td>${act.details}</td> <td><span class="badge ${statusClass}">${act.status}</span></td> </tr> `; }); } 
+
+function openUserModal(id=null) {
+  byId("userModal").style.display = "flex";
+  if (!id) {
+    byId("userModalTitle").textContent = "Add User";
+    byId("userId").value = "";
+    byId("userName").value = "";
+    byId("userUsername").value = "";
+    byId("userPassword").value = "";
+    byId("userRole").value = "student";
+    byId("userPassword").required = true;
+    return;
+  }
+  const u = appData.users.find(x => x.id === id);
+  if (!u) return;
+  byId("userModalTitle").textContent = "Edit User";
+  byId("userId").value = String(u.id);
+  byId("userName").value = u.name;
+  byId("userUsername").value = u.username;
+  byId("userPassword").value = "";
+  byId("userRole").value = u.role;
+  byId("userPassword").required = false; // allow keep old
 }
-function updateAttendanceBadge() {
-if (!currentUser) return;
-const today = new Date().toISOString().split('T')[0]; const todayAttendance = appData.attendance.filter(a => a.userId === currentUser.id && a.date === today ).length; const badge = document.getElementById('attendanceBadge'); if (badge) { badge.textContent = todayAttendance > 0 ? '✓' : '0'; badge.style.background = todayAttendance > 0 ? 'var(--success)' : 'var(--warning)'; } 
+
+function closeUserModal() {
+  byId("userModal").style.display = "none";
 }
-// =========================================
-// 6. STUDY MATERIALS - COMPLETE WORKING SYSTEM
-// =========================================
-function loadStudentMaterials() {
-const container = document.getElementById('materialContainer');
-const user = currentUser;
-let materials = []; if (user.role === 'admin') { materials = appData.materials; } else if (user.courseId) { materials = appData.materials.filter(m => m.courseId == user.courseId); } else if (user.role === 'lecturer') { const lecturerCourses = appData.courses.filter(c => c.lecturer === user.name); materials = appData.materials.filter(m => lecturerCourses.some(c => c.id == m.courseId) ); } // Show download all button if there are materials const downloadBtn = document.getElementById('downloadAllBtn'); if (materials.length > 0) { downloadBtn.style.display = 'inline-flex'; } else { downloadBtn.style.display = 'none'; } if (materials.length === 0) { container.innerHTML = ` <div class="empty-state"> <i class="fas fa-folder-open"></i> <h3>No Materials Available</h3> <p>There are no study materials assigned to your course yet.</p> ${user.role === 'admin' || user.role === 'lecturer' ? `<button class="btn btn-primary mt-4" onclick="openMaterialModal()"> <i class="fas fa-plus"></i> Add Materials </button>` : `<p class="text-sm text-gray mt-2">Please contact your lecturer or administrator.</p>` } </div> `; return; } container.innerHTML = ''; materials.forEach(material => { const course = appData.courses.find(c => c.id == material.courseId); const el = document.createElement('div'); el.className = 'material-item'; // Determine icon let iconClass = 'icon-code', faIcon = 'fa-code', typeText = 'Code Snippet'; if (material.type === 'pdf') { iconClass = 'icon-pdf'; faIcon = 'fa-file-pdf'; typeText = 'PDF Document'; } else if (material.type === 'doc' || material.type === 'docx') { iconClass = 'icon-doc'; faIcon = 'fa-file-word'; typeText = 'Word Document'; } else if (material.type === 'ppt' || material.type === 'pptx') { iconClass = 'icon-doc'; faIcon = 'fa-file-powerpoint'; typeText = 'Presentation'; } else if (material.type === 'video') { iconClass = 'icon-doc'; faIcon = 'fa-file-video'; typeText = 'Video'; } else if (material.type === 'link') { iconClass = 'icon-doc'; faIcon = 'fa-link'; typeText = 'External Link'; } // Create material content let contentHtml = ''; if (material.type === 'code') { contentHtml = ` <div class="code-snippet-view"> <div class="code-actions"> <button class="code-btn" onclick="copyMaterialCode(${material.id})"> <i class="fas fa-copy"></i> Copy </button> <button class="code-btn" onclick="downloadMaterial(${material.id})"> <i class="fas fa-download"></i> Download </button> <button class="code-btn" onclick="runMaterialCode(${material.id})"> <i class="fas fa-play"></i> Run </button> </div> <pre><code>${escapeHtml(material.content)}</code></pre> </div> `; } else { contentHtml = ` <div class="flex flex-col gap-2"> <p class="text-gray-600">${material.description || 'No description available.'}</p> <div class="flex gap-2 mt-2"> ${material.type === 'link' ? ` <button class="btn btn-primary btn-sm" onclick="window.open('${material.content}', '_blank')"> <i class="fas fa-external-link-alt"></i> Open Link </button>` : ` <button class="btn btn-primary btn-sm" onclick="downloadMaterial(${material.id})"> <i class="fas fa-download"></i> Download </button> <button class="btn btn-outline btn-sm" onclick="previewMaterial(${material.id})"> <i class="fas fa-eye"></i> Preview </button>`} ${(currentUser.role === 'admin' || currentUser.role === 'lecturer') ? ` <button class="btn btn-outline btn-sm" onclick="shareMaterial(${material.id})"> <i class="fas fa-share"></i> Share </button> ` : ''} </div> </div> `; } el.innerHTML = ` <div class="material-icon ${iconClass}"> <i class="fas ${faIcon}"></i> </div> <div class="material-content"> <div class="material-title">${material.title}</div> <div class="material-meta"> <span class="badge badge-gray">${typeText}</span> <span class="text-gray">•</span> <span>${course ? course.name : 'General'}</span> <span class="text-gray">•</span> <span>${material.date || 'N/A'}</span> ${material.fileSize ? `<span class="text-gray">•</span><span>${material.fileSize}</span>` : ''} ${material.downloads > 0 ? `<span class="text-gray">•</span><span><i class="fas fa-download"></i> ${material.downloads}</span>` : ''} ${material.author ? `<span class="text-gray">•</span><span><i class="fas fa-user"></i> ${material.author}</span>` : ''} </div> ${contentHtml} </div> `; container.appendChild(el); }); 
+
+function saveUserFromModal() {
+  if (currentUser.role !== "admin") return toast("Admin only", "error");
+
+  const id = byId("userId").value.trim();
+  const name = byId("userName").value.trim();
+  const username = byId("userUsername").value.trim();
+  const password = byId("userPassword").value.trim();
+  const role = byId("userRole").value;
+
+  if (!name || !username) return toast("Name + Username required", "error");
+
+  const usernameTaken = appData.users.some(u => u.username === username && String(u.id) !== String(id));
+  if (usernameTaken) return toast("Username already exists", "error");
+
+  if (!id) {
+    if (!password || password.length < 6) return toast("Password min 6 chars", "error");
+    const newUser = {
+      id: Date.now(),
+      username,
+      password,
+      name,
+      role,
+      status: "active",
+      faceDescriptor: null,
+      createdAt: iso(),
+      lastLogin: null
+    };
+    appData.users.push(newUser);
+    saveAppData();
+    log("USER_CREATE", `Created user ${username}`);
+    toast("User created", "success");
+  } else {
+    const idx = appData.users.findIndex(u => String(u.id) === String(id));
+    if (idx < 0) return;
+    const prev = appData.users[idx];
+    appData.users[idx] = {
+      ...prev,
+      name,
+      username,
+      role,
+      password: password ? password : prev.password
+    };
+    saveAppData();
+    log("USER_UPDATE", `Updated user ${username}`);
+    toast("User updated", "success");
+
+    // If edited self, refresh
+    if (currentUser.id === prev.id) {
+      currentUser = appData.users[idx];
+      sessionStorage.setItem(APP.sessionKey, JSON.stringify({ id: currentUser.id }));
+      showDashboard();
+    }
+  }
+
+  closeUserModal();
+  renderUsers();
 }
-function refreshMaterials() {
-loadStudentMaterials();
-showToast('Materials refreshed', 'success');
+
+function deleteUser(id) {
+  if (currentUser.role !== "admin") return toast("Admin only", "error");
+  if (!confirm("Delete this user?")) return;
+
+  const u = appData.users.find(x => x.id === id);
+  if (!u) return;
+  if (id === 1) return toast("Cannot delete main admin", "error");
+
+  appData.users = appData.users.filter(x => x.id !== id);
+  appData.attendance = appData.attendance.filter(a => a.userId !== id);
+  saveAppData();
+  log("USER_DELETE", `Deleted user ${u.username}`);
+  toast("User deleted", "success");
+  renderUsers();
+  renderAttendance();
 }
-function downloadAllMaterials() {
-const user = currentUser;
-let materials = [];
-if (user.role === 'admin') { materials = appData.materials; } else if (user.courseId) { materials = appData.materials.filter(m => m.courseId == user.courseId); } if (materials.length === 0) { showToast('No materials to download', 'warning'); return; } showToast(`Preparing ${materials.length} files for download...`, 'info'); // Create a ZIP file (simulated) setTimeout(() => { // Create a single text file with all material info let content = `Ferretto Edu Pro - Study Materials\n`; content += `Downloaded on: ${new Date().toLocaleDateString()}\n`; content += `User: ${user.name}\n`; content += `Course: ${user.courseId ? appData.courses.find(c => c.id == user.courseId)?.name : 'All Courses'}\n\n`; content += '='.repeat(50) + '\n\n'; materials.forEach((material, index) => { content += `MATERIAL ${index + 1}:\n`; content += `Title: ${material.title}\n`; content += `Type: ${material.type}\n`; content += `Description: ${material.description || 'No description'}\n`; content += `Date: ${material.date || 'N/A'}\n`; content += `Size: ${material.fileSize || 'N/A'}\n`; if (material.type === 'code') { content += `\nCODE CONTENT:\n${material.content}\n`; } else if (material.type === 'link') { content += `\nLINK: ${material.content}\n`; } content += '\n' + '='.repeat(50) + '\n\n'; }); // Create download const blob = new Blob([content], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `ferretto_materials_${new Date().toISOString().split('T')[0]}.txt`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); showToast('All materials downloaded as text file', 'success'); logSystem('DOWNLOAD_ALL', `Downloaded ${materials.length} materials`, user.id); }, 1500); 
+
+// ================================
+// FACE MODELS + CAMERA
+// ================================
+async function ensureModels() {
+  if (modelsLoaded) return true;
+  if (!window.faceapi) {
+    toast("face-api.js not loaded. Add script in <head>.", "error");
+    return false;
+  }
+  try {
+    if (APP.face.detector === "tiny") {
+      await faceapi.nets.tinyFaceDetector.loadFromUri(APP.modelsBase);
+    } else {
+      await faceapi.nets.ssdMobilenetv1.loadFromUri(APP.modelsBase);
+    }
+    await faceapi.nets.faceLandmark68Net.loadFromUri(APP.modelsBase);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(APP.modelsBase);
+    modelsLoaded = true;
+    return true;
+  } catch (e) {
+    console.error(e);
+    toast("Failed to load face models (network/HTTPS issue).", "error");
+    return false;
+  }
 }
-function downloadMaterial(materialId) {
-const material = appData.materials.find(m => m.id == materialId);
-if (!material) return;
-// Increment download count material.downloads = (material.downloads || 0) + 1; saveAppData(); let content, filename, mimeType; if (material.type === 'code') { content = material.content; filename = `${material.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${material.language || 'txt'}`; mimeType = 'text/plain'; } else if (material.type === 'link') { // Open in new tab window.open(material.content, '_blank'); showToast('Opening link in new tab', 'info'); logSystem('MATERIAL_VIEW', `Viewed link: ${material.title}`, currentUser.id); return; } else { // For other types, create a download file content = `Title: ${material.title}\n`; content += `Type: ${material.type}\n`; content += `Description: ${material.description || 'No description'}\n`; content += `Date: ${material.date || 'N/A'}\n`; content += `Author: ${material.author || 'Unknown'}\n\n`; content += 'NOTE: This is a simulated file. In a real system, this would be the actual file.\n'; content += `Actual file would be: ${material.content || 'Not specified'}`; filename = `${material.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`; mimeType = 'text/plain'; } // Create download link const blob = new Blob([content], { type: mimeType }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); showToast(`Downloaded: ${material.title}`, 'success'); logSystem('MATERIAL_DOWNLOAD', `Downloaded material: ${material.title}`, currentUser.id); 
+
+function detectorOptions() {
+  if (APP.face.detector === "tiny") {
+    return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+  }
+  return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6 });
 }
-function copyMaterialCode(materialId) {
-const material = appData.materials.find(m => m.id == materialId);
-if (material && material.content) {
-navigator.clipboard.writeText(material.content).then(() => {
-showToast('Code copied to clipboard', 'success');
-logSystem('CODE_COPY', Copied code from: ${material.title}, currentUser.id);
-}).catch(() => {
-// Fallback
-const textarea = document.createElement('textarea');
-textarea.value = material.content;
-document.body.appendChild(textarea);
-textarea.select();
-document.execCommand('copy');
-document.body.removeChild(textarea);
-showToast('Code copied', 'success');
-});
+
+async function startCamera(videoEl, preferFront = true) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera not supported");
+  if (!isSecureContextOK()) throw new Error("Camera requires HTTPS (or localhost).");
+
+  videoEl.setAttribute("playsinline", "true");
+  videoEl.muted = true;
+  videoEl.autoplay = true;
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: preferFront ? "user" : "environment",
+      width: { ideal: 640 },
+      height: { ideal: 480 }
+    }
+  });
+
+  videoEl.srcObject = stream;
+
+  await new Promise((res) => {
+    if (videoEl.readyState >= 2) return res();
+    videoEl.onloadeddata = () => res();
+  });
+
+  try { await videoEl.play(); } catch (_) {}
+  return stream;
 }
+
+function stopStream(stream) {
+  if (!stream) return;
+  stream.getTracks().forEach(t => t.stop());
 }
-function runMaterialCode(materialId) {
-const material = appData.materials.find(m => m.id == materialId);
-if (!material || material.type !== 'code') return;
-const newWindow = window.open(); newWindow.document.write(material.content); newWindow.document.close(); showToast('Code running in new window', 'info'); logSystem('CODE_RUN', `Ran code from: ${material.title}`, currentUser.id); 
+
+async function captureDescriptor(videoEl) {
+  const det = await faceapi
+    .detectSingleFace(videoEl, detectorOptions())
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+
+  return det?.descriptor || null; // Float32Array(128)
 }
-function previewMaterial(materialId) {
-const material = appData.materials.find(m => m.id == materialId);
-if (!material) return;
-if (material.type === 'code') { // Open in code viewer alert(`Code Preview: ${material.title}\n\n${material.content.substring(0, 500)}${material.content.length > 500 ? '...' : ''}`); } else if (material.type === 'link') { window.open(material.content, '_blank'); } else { showToast(`Preview: ${material.title}\n\nDescription: ${material.description || 'No description'}\n\nType: ${material.type}\nDate: ${material.date || 'N/A'}`, 'info'); } 
+
+function cosineSim(a, b) {
+  a = a instanceof Float32Array ? a : new Float32Array(a || []);
+  b = b instanceof Float32Array ? b : new Float32Array(b || []);
+  if (!a.length || !b.length || a.length !== b.length) return -1;
+
+  let dot=0, na=0, nb=0;
+  for (let i=0;i<a.length;i++){
+    dot += a[i]*b[i];
+    na += a[i]*a[i];
+    nb += b[i]*b[i];
+  }
+  na = Math.sqrt(na); nb = Math.sqrt(nb);
+  if (!na || !nb) return -1;
+  return dot/(na*nb);
 }
-function shareMaterial(materialId) {
-const material = appData.materials.find(m => m.id == materialId);
-if (!material) return;
-const course = appData.courses.find(c => c.id == material.courseId); const shareText = `Check out this study material:\n\n${material.title}\n${material.description || ''}\n\nCourse: ${course ? course.name : 'General'}`; if (navigator.share) { navigator.share({ title: material.title, text: shareText, url: window.location.href }).then(() => { showToast('Material shared successfully', 'success'); }).catch(() => { copyToClipboard(shareText); }); } else { copyToClipboard(shareText); } 
+
+function avgDesc(list) {
+  if (!list.length) return null;
+  const out = new Float32Array(list[0].length);
+  for (const d of list) {
+    for (let i=0;i<out.length;i++) out[i] += d[i];
+  }
+  for (let i=0;i<out.length;i++) out[i] /= list.length;
+  return out;
 }
-// =========================================
-// 7. MATERIAL UPLOAD SYSTEM - COMPLETE
-// =========================================
-function openMaterialModal() {
-const form = document.getElementById('materialForm');
-form.reset();
-document.getElementById('materialId').value = '';
-document.getElementById('fileUploadSection').classList.remove('hidden');
-document.getElementById('materialCodeGroup').classList.add('hidden');
-document.getElementById('materialLinkGroup').classList.add('hidden');
-document.getElementById('filePreview').classList.add('hidden');
-clearFileUpload();
-// Populate course dropdown const courseSelect = document.getElementById('materialCourseId'); courseSelect.innerHTML = appData.courses.map(c => `<option value="${c.id}">${c.code} - ${c.name}</option>` ).join(''); openModal('materialModal'); 
+
+// ================================
+// FACE REGISTRATION (ADMIN)
+// ================================
+function openFaceModal(userId) {
+  if (currentUser.role !== "admin") return toast("Admin only", "error");
+  const u = appData.users.find(x => x.id === userId);
+  if (!u) return;
+
+  regUserId = userId;
+  regSamples = [];
+  regCount = 0;
+  updateRegUI("Idle", 0);
+
+  byId("regUserName").textContent = u.name;
+  byId("faceModal").style.display = "flex";
 }
-function handleFileUpload(files) {
-if (!files || files.length === 0) return;
-const file = files[0]; const filePreview = document.getElementById('filePreview'); // Validate file type const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'video/mp4', 'text/html', 'text/css', 'text/javascript', 'application/javascript', 'text/x-python', 'text/x-c++src', 'text/plain']; const validExtensions = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.mp4', '.html', '.css', '.js', '.py', '.cpp', '.txt']; const isValidType = validTypes.includes(file.type) || validExtensions.some(ext => file.name.toLowerCase().endsWith(ext)); if (!isValidType) { showToast('Invalid file type. Please upload a supported file.', 'error'); return; } // Check file size (max 10MB) if (file.size > 10 * 1024 * 1024) { showToast('File too large. Maximum size is 10MB.', 'error'); return; } // Show file preview filePreview.innerHTML = ` <div class="file-preview"> <div class="file-preview-icon"> <i class="fas fa-file"></i> </div> <div> <div class="font-bold">${file.name}</div> <div class="text-sm text-gray">${formatFileSize(file.size)}</div> <div class="text-xs text-gray">${file.type || 'Unknown type'}</div> </div> <button class="btn btn-danger btn-sm ml-auto" onclick="clearFileUpload()"> <i class="fas fa-times"></i> </button> </div> `; filePreview.classList.remove('hidden'); // Store file reference currentUpload = file; showToast(`File "${file.name}" ready for upload`, 'success'); 
+
+function closeFaceModal() {
+  stopFaceRegistration();
+  byId("faceModal").style.display = "none";
 }
-function clearFileUpload() {
-const filePreview = document.getElementById('filePreview');
-filePreview.innerHTML = '';
-filePreview.classList.add('hidden');
-currentUpload = null;
+
+async function testRegCamera() {
+  try {
+    const ok = await ensureModels();
+    if (!ok) return;
+
+    const v = byId("regVideo");
+    if (regStream) stopStream(regStream);
+    regStream = await startCamera(v, true);
+    toast("Camera OK", "success");
+  } catch (e) {
+    toast(e.message || "Camera test failed", "error");
+  }
 }
-function formatFileSize(bytes) {
-if (bytes < 1024) return bytes + ' bytes';
-if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+
+async function startFaceRegistration() {
+  try {
+    if (currentUser.role !== "admin") return toast("Admin only", "error");
+    if (!regUserId) return toast("No user selected", "error");
+    if (regTimer) return;
+
+    const ok = await ensureModels();
+    if (!ok) return;
+
+    const v = byId("regVideo");
+    if (regStream) stopStream(regStream);
+    regStream = await startCamera(v, true);
+
+    regSamples = [];
+    regCount = 0;
+    updateRegUI("Capturing", 0);
+
+    byId("btnStartReg").style.display = "none";
+    byId("btnStopReg").style.display = "inline-block";
+
+    regTimer = setInterval(async () => {
+      try {
+        const d = await captureDescriptor(v);
+        if (d) {
+          regSamples.push(d);
+          regCount++;
+          const pct = Math.round((regCount / APP.face.regSamplesTarget) * 100);
+          updateRegUI("Capturing", pct);
+        }
+
+        if (regCount >= APP.face.regSamplesTarget) {
+          await finalizeRegistration();
+        }
+      } catch (e) {
+        console.warn("reg tick", e);
+      }
+    }, APP.face.regIntervalMs);
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "Registration failed", "error");
+    stopFaceRegistration();
+  }
 }
-function toggleMaterialInputs() {
-const type = document.getElementById('materialType').value;
-const fileSection = document.getElementById('fileUploadSection');
-const codeGroup = document.getElementById('materialCodeGroup');
-const linkGroup = document.getElementById('materialLinkGroup');
-fileSection.classList.add('hidden'); codeGroup.classList.add('hidden'); linkGroup.classList.add('hidden'); if (type === 'code') { codeGroup.classList.remove('hidden'); if (materialEditor) { materialEditor.refresh(); } } else if (type === 'link') { linkGroup.classList.remove('hidden'); } else { fileSection.classList.remove('hidden'); } 
+
+function stopFaceRegistration() {
+  if (regTimer) clearInterval(regTimer);
+  regTimer = null;
+
+  byId("btnStartReg").style.display = "inline-block";
+  byId("btnStopReg").style.display = "none";
+
+  const v = byId("regVideo");
+  if (v) v.srcObject = null;
+  stopStream(regStream);
+  regStream = null;
+
+  // keep UI status if modal open
 }
-function uploadMaterialFile() {
-document.getElementById('fileInput').click();
+
+async function finalizeRegistration() {
+  if (regTimer) clearInterval(regTimer);
+  regTimer = null;
+
+  const minNeeded = Math.max(8, Math.floor(APP.face.regSamplesTarget * 0.5));
+  if (regSamples.length < minNeeded) {
+    updateRegUI("Low Samples", 0);
+    toast("Face capture not stable. Try better light + steady face.", "error");
+    stopFaceRegistration();
+    return;
+  }
+
+  const averaged = avgDesc(regSamples);
+  const user = appData.users.find(u => u.id === regUserId);
+  if (!user) return;
+
+  user.faceDescriptor = Array.from(averaged);
+  saveAppData();
+
+  updateRegUI("Completed", 100);
+  toast("Face registered successfully", "success");
+  log("FACE_REGISTER", `Registered face for ${user.username}`);
+
+  stopFaceRegistration();
+  renderUsers();
+  updateFaceStatus();
+  closeFaceModal();
 }
-function handleSaveMaterial(e) {
-e.preventDefault();
-const materialId = document.getElementById('materialId').value; const title = document.getElementById('materialTitle').value.trim(); const type = document.getElementById('materialType').value; const courseId = document.getElementById('materialCourseId').value; const description = document.getElementById('materialDesc').value.trim(); // Validation if (!title || !type || !courseId) { showToast('Please fill all required fields', 'error'); return; } let content = ''; let fileSize = ''; let language = ''; if (type === 'code') { if (materialEditor) { content = materialEditor.getValue(); } if (!content.trim()) { showToast('Please enter code content', 'error'); return; } language = document.getElementById('codeLanguage').value; fileSize = formatFileSize(new Blob([content]).size); } else if (type === 'link') { content = document.getElementById('materialLink').value.trim(); if (!content.startsWith('http')) { showToast('Please enter a valid URL starting with http:// or https://', 'error'); return; } fileSize = 'N/A'; } else { // For file uploads if (!currentUpload) { showToast('Please upload a file', 'error'); return; } // In a real app, upload to server // For demo, simulate upload content = `File: ${currentUpload.name}\nSize: ${formatFileSize(currentUpload.size)}\nType: ${currentUpload.type}`; fileSize = formatFileSize(currentUpload.size); } if (materialId) { // Update existing material const materialIndex = appData.materials.findIndex(m => m.id == materialId); if (materialIndex === -1) return; const material = appData.materials[materialIndex]; material.title = title; material.type = type; material.courseId = courseId; material.content = content; material.description = description; material.fileSize = fileSize; material.updatedAt = new Date().toISOString(); if (language) material.language = language; appData.materials[materialIndex] = material; showToast('Material updated successfully', 'success'); logSystem('MATERIAL_UPDATE', `Updated material: ${title}`, currentUser.id); } else { // Create new material const newMaterial = { id: Date.now(), courseId, title, type, content, description, fileSize, downloads: 0, date: new Date().toISOString().split('T')[0], tags: [], language: language || null, author: currentUser.name, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; appData.materials.push(newMaterial); showToast('Material created successfully', 'success'); logSystem('MATERIAL_CREATE', `Created material: ${title}`, currentUser.id); } saveAppData(); closeModal('materialModal'); loadAdminMaterials(); loadStudentMaterials(); 
+
+function updateRegUI(status, pct) {
+  byId("regStatus").textContent = status;
+  byId("regCount").textContent = String(regCount);
+  byId("regBar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
-function editMaterial(materialId) {
-const material = appData.materials.find(m => m.id === materialId);
-if (!material) return;
-const form = document.getElementById('materialForm'); form.reset(); document.getElementById('materialId').value = material.id; document.getElementById('materialTitle').value = material.title; document.getElementById('materialType').value = material.type; document.getElementById('materialCourseId').value = material.courseId; document.getElementById('materialDesc').value = material.description || ''; toggleMaterialInputs(); if (material.type === 'code') { if (materialEditor) { materialEditor.setValue(material.content); } if (material.language) { document.getElementById('codeLanguage').value = material.language; } } else if (material.type === 'link') { document.getElementById('materialLink').value = material.content; } openModal('materialModal'); 
+
+// ================================
+// ATTENDANCE (REAL MATCH)
+// ================================
+async function testFace() {
+  try {
+    const me = appData.users.find(u => u.id === currentUser.id);
+    if (!me?.faceDescriptor) return toast("Face not registered. Ask admin.", "warning");
+
+    const ok = await ensureModels();
+    if (!ok) return;
+
+    setAttStatus("Testing…");
+
+    const v = byId("attVideo");
+    if (attStream) stopStream(attStream);
+    attStream = await startCamera(v, true);
+
+    const d = await captureDescriptor(v);
+    const sim = cosineSim(d, me.faceDescriptor);
+
+    stopAttendanceScan();
+    if (sim >= APP.face.matchThreshold) {
+      toast(`Test PASS (Similarity ${(sim*100).toFixed(1)}%)`, "success");
+      setAttStatus("Test Passed");
+    } else {
+      toast(`Test FAIL (Similarity ${(sim*100).toFixed(1)}%)`, "error");
+      setAttStatus("Test Failed");
+    }
+  } catch (e) {
+    console.error(e);
+    stopAttendanceScan();
+    toast(e.message || "Test failed", "error");
+    setAttStatus("Error");
+  }
 }
-function deleteMaterial(materialId) {
-const material = appData.materials.find(m => m.id === materialId);
-if (!material) return;
-if (!confirm(`Delete material "${material.title}"?`)) { return; } appData.materials = appData.materials.filter(m => m.id !== materialId); saveAppData(); showToast('Material deleted', 'info'); logSystem('MATERIAL_DELETE', `Deleted material: ${material.title}`, currentUser.id); loadAdminMaterials(); loadStudentMaterials(); 
+
+async function startAttendanceScan() {
+  try {
+    const me = appData.users.find(u => u.id === currentUser.id);
+    if (!me?.faceDescriptor) return toast("Face not registered. Ask admin.", "warning");
+
+    const ok = await ensureModels();
+    if (!ok) return;
+
+    // prevent duplicate
+    if (scanTimer) return;
+
+    // already marked today?
+    const exists = appData.attendance.some(a => a.userId === currentUser.id && a.date === today());
+    if (exists && !confirm("Attendance already marked today. Mark again?")) return;
+
+    byId("btnStartAttendance").style.display = "none";
+    byId("btnStopAttendance").style.display = "inline-block";
+
+    bestSim = -1;
+    setAttStatus("Scanning…");
+
+    const v = byId("attVideo");
+    if (attStream) stopStream(attStream);
+    attStream = await startCamera(v, true);
+
+    const start = Date.now();
+
+    const loop = async () => {
+      if (!attStream) return;
+
+      const d = await captureDescriptor(v);
+      if (d) {
+        const sim = cosineSim(d, me.faceDescriptor);
+        if (sim > bestSim) bestSim = sim;
+
+        if (sim >= APP.face.matchThreshold) {
+          const coords = await getLocationBestEffort();
+          markAttendance(coords, sim);
+          stopAttendanceScan();
+          return;
+        }
+      }
+
+      if (Date.now() - start > APP.face.scanTimeoutMs) {
+        stopAttendanceScan();
+        toast(`No match. Best ${(bestSim*100).toFixed(1)}% (need ${(APP.face.matchThreshold*100).toFixed(0)}%).`, "warning");
+        setAttStatus("No Match");
+        return;
+      }
+
+      scanTimer = setTimeout(loop, 250);
+    };
+
+    loop();
+  } catch (e) {
+    console.error(e);
+    stopAttendanceScan();
+    toast(e.message || "Attendance scan failed", "error");
+    setAttStatus("Error");
+  }
 }
-// =========================================
-// 8. CODE EDITOR & PROJECTS
-// =========================================
-function initCodeEditors() {
-// Main code editor
-const textarea = document.getElementById('codeEditor');
-if (textarea && typeof CodeMirror !== 'undefined') {
-mainEditor = CodeMirror.fromTextArea(textarea, {
-mode: 'htmlmixed',
-theme: 'monokai',
-lineNumbers: true,
-lineWrapping: true,
-autoCloseTags: true,
-autoCloseBrackets: true,
-matchBrackets: true,
-indentUnit: 2,
-tabSize: 2,
-extraKeys: {
-"Ctrl-Space": "autocomplete",
-"Ctrl-/": "toggleComment",
-"Shift-Tab": "indentLess"
+
+function stopAttendanceScan() {
+  if (scanTimer) clearTimeout(scanTimer);
+  scanTimer = null;
+
+  byId("btnStartAttendance").style.display = "inline-block";
+  byId("btnStopAttendance").style.display = "none";
+
+  const v = byId("attVideo");
+  if (v) v.srcObject = null;
+  stopStream(attStream);
+  attStream = null;
+
+  if (byId("attStatusText").textContent === "Scanning…") setAttStatus("Camera Off");
 }
-});
-// Load last saved code const lastCode = localStorage.getItem('ferretto_last_code'); if (lastCode) { mainEditor.setValue(lastCode); } else { mainEditor.setValue(`<!DOCTYPE html> My Project body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; } .container { max-width: 800px; margin: 0 auto; text-align: center; } h1 { margin-bottom: 20px; } button { background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: all 0.3s; } button:hover { background: #4338ca; transform: translateY(-2px); } 
-Welcome to Ferretto Edu Pro!
-Edit this code to create your project.
-Click Me 
-<script> console.log('Project loaded successfully'); <\/script> `); } mainEditor.on('change', updatePreview); setTimeout(updatePreview, 100); } // Material code editor const materialTextarea = document.getElementById('materialCodeEditor'); if (materialTextarea && typeof CodeMirror !== 'undefined') { materialEditor = CodeMirror.fromTextArea(materialTextarea, { mode: 'htmlmixed', theme: 'monokai', lineNumbers: true, lineWrapping: true, autoCloseTags: true, matchBrackets: true, indentUnit: 2 }); } // Setup auto-save setInterval(() => { if (mainEditor) { const code = mainEditor.getValue(); localStorage.setItem('ferretto_last_code', code); } }, ENTERPRISE_CONFIG.AUTO_SAVE_INTERVAL); 
+
+function setAttStatus(s) {
+  byId("attStatusText").textContent = s;
 }
-function updatePreview() {
-if (!mainEditor) return;
-const code = mainEditor.getValue(); const iframe = document.getElementById('previewFrame'); const doc = iframe.contentDocument || iframe.contentWindow.document; try { doc.open(); doc.write(code); doc.close(); } catch (error) { console.error('Preview error:', error); doc.write(`<html><body><h1>Preview Error</h1><p>${error.message}</p></body></html>`); } 
+
+// ================================
+// LOCATION (best effort, optional)
+// ================================
+function getLocationBestEffort() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({ latitude: null, longitude: null, accuracy: null });
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+      () => resolve({ latitude: null, longitude: null, accuracy: null }),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 1000 }
+    );
+  });
 }
-function forceRefreshPreview() {
-updatePreview();
-showToast('Preview refreshed', 'success');
+
+// ================================
+// ATTENDANCE RECORDS
+// ================================
+function markAttendance(coords, sim) {
+  const rec = {
+    id: Date.now(),
+    userId: currentUser.id,
+    date: today(),
+    time: nowTime(),
+    similarity: Math.round(sim * 1000) / 1000,
+    lat: coords?.latitude ?? null,
+    lng: coords?.longitude ?? null,
+    accuracy: coords?.accuracy ?? null,
+    method: "REAL Face Biometric (face-api.js)"
+  };
+
+  appData.attendance.push(rec);
+  saveAppData();
+  log("ATTENDANCE", `Marked (${Math.round(sim*100)}%)`);
+  toast(`Attendance marked ✅ (${Math.round(sim*100)}%)`, "success");
+  renderAttendance();
 }
-function openPreviewInNewTab() {
-if (!mainEditor) return;
-const code = mainEditor.getValue();
-const newWindow = window.open();
-newWindow.document.write(code);
-newWindow.document.close();
+
+function renderAttendance() {
+  const tbody = byId("attendanceTable");
+  tbody.innerHTML = "";
+
+  const rows = appData.attendance
+    .filter(a => a.userId === currentUser?.id)
+    .slice()
+    .sort((a,b) => (b.id - a.id));
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="fx-muted">No records yet.</td></tr>`;
+    return;
+  }
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.date}</td>
+      <td>${r.time || ""}</td>
+      <td><b>${Math.round((r.similarity || 0) * 100)}%</b></td>
+      <td>${r.lat == null ? "—" : Number(r.lat).toFixed(5)}</td>
+      <td>${r.lng == null ? "—" : Number(r.lng).toFixed(5)}</td>
+      <td>${r.accuracy == null ? "—" : `±${Math.round(r.accuracy)}m`}</td>
+      <td>${escapeHtml(r.method || "")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
 }
-function runCode() {
-updatePreview();
-showToast('Code executed successfully', 'success');
-logSystem('CODE_RUN', 'Ran code in playground', currentUser.id);
+
+function exportCSV() {
+  const rows = appData.attendance.filter(a => a.userId === currentUser.id);
+  if (!rows.length) return toast("No records to export", "warning");
+
+  let csv = "Date,Time,Similarity,Lat,Lng,Accuracy,Method\n";
+  for (const r of rows) {
+    csv += `"${r.date}","${r.time || ""}","${r.similarity ?? ""}",`;
+    csv += `"${r.lat ?? ""}","${r.lng ?? ""}","${r.accuracy ?? ""}","${(r.method || "").replace(/"/g,'""')}"\n`;
+  }
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `attendance_${currentUser.username}_${today()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast("Exported CSV", "success");
 }
-function resetEditor() {
-if (confirm('Clear the editor? Your current code will be lost.')) {
-mainEditor.setValue(`
-New Project body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; } .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); } 
-New Project
-Start coding here...
-`); updatePreview(); showToast('Editor reset', 'info'); } } 
-// =========================================
-// 9. PROJECT MANAGEMENT
-// =========================================
-function openProjectModal() {
-const form = document.getElementById('projectForm');
-form.reset();
-openModal('projectModal');
+
+// ================================
+// LOGS + TOAST + UTILS
+// ================================
+function log(action, details) {
+  appData.logs = appData.logs || [];
+  appData.logs.unshift({ id: Date.now(), ts: iso(), userId: currentUser?.id ?? null, action, details });
+  if (appData.logs.length > 500) appData.logs = appData.logs.slice(0, 500);
+  saveAppData();
 }
-function handleSaveProject(e) {
-e.preventDefault();
-const name = document.getElementById('projectNameInput').value.trim(); const description = document.getElementById('projectDescriptionInput').value.trim(); const visibility = document.getElementById('projectVisibilityInput').value; const category = document.getElementById('projectCategoryInput').value; const tags = document.getElementById('projectTagsInput').value.split(',').map(tag => tag.trim()).filter(tag => tag); if (!name) { showToast('Project name is required', 'error'); return; } const code = mainEditor.getValue(); const newProject = { id: Date.now(), userId: currentUser.id, name, description, code, visibility, category, tags, likes: 0, views: 0, forks: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; appData.projects.push(newProject); saveAppData(); closeModal('projectModal'); showToast('Project saved successfully!', 'success'); logSystem('PROJECT_SAVE', `Saved project: ${name}`, currentUser.id); loadMyProjects(); 
+
+function toast(msg, type="info") {
+  const wrap = byId("toastContainer");
+  const el = document.createElement("div");
+  el.className = "fx-toast";
+  const dot = document.createElement("div");
+  dot.className = "fx-dot";
+  dot.style.background =
+    type === "success" ? "var(--ok)" :
+    type === "error" ? "var(--danger)" :
+    type === "warning" ? "var(--warn)" : "var(--pri)";
+  const text = document.createElement("div");
+  text.innerHTML = `<div style="font-weight:800">${escapeHtml(msg)}</div>`;
+  el.appendChild(dot);
+  el.appendChild(text);
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateY(6px)";
+    el.style.transition = "all .25s ease";
+    setTimeout(() => el.remove(), 250);
+  }, 3200);
 }
-function loadMyProjects() {
-const grid = document.getElementById('myProjectsGrid');
-const myProjects = appData.projects
-.filter(p => p.userId === currentUser.id)
-.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-if (myProjects.length === 0) { grid.innerHTML = ` <div class="empty-state w-full"> <i class="fas fa-laptop-code"></i> <h3>No Projects Yet</h3> <p>Create your first project using the code editor above.</p> <button class="btn btn-primary mt-4" onclick="showSection('projects')"> <i class="fas fa-code"></i> Start Coding </button> </div> `; return; } grid.innerHTML = ''; myProjects.forEach(project => { const card = document.createElement('div'); card.className = 'card'; const isPublic = project.visibility === 'public'; const isUnlisted = project.visibility === 'unlisted'; const visibilityText = isPublic ? 'Public' : isUnlisted ? 'Unlisted' : 'Private'; const visibilityClass = isPublic ? 'badge-success' : isUnlisted ? 'badge-info' : 'badge-gray'; const lastUpdated = new Date(project.updatedAt); const timeAgo = getTimeAgo(lastUpdated); card.innerHTML = ` <div class="card-header"> <div> <div class="card-title">${project.name}</div> <div class="card-subtitle">${project.description || 'No description'}</div> </div> <span class="badge ${visibilityClass}">${visibilityText}</span> </div> <div class="card-body"> <div class="flex flex-wrap gap-2 mb-3"> <span class="badge badge-primary">${project.category}</span> ${project.tags.slice(0, 3).map(tag => `<span class="badge badge-gray">${tag}</span>`).join('')} ${project.tags.length > 3 ? `<span class="badge badge-gray">+${project.tags.length - 3}</span>` : ''} </div> <div class="flex items-center gap-4 text-sm text-gray"> <div class="flex items-center gap-1"> <i class="fas fa-heart"></i> <span>${project.likes || 0}</span> </div> <div class="flex items-center gap-1"> <i class="fas fa-eye"></i> <span>${project.views || 0}</span> </div> <div class="flex items-center gap-1"> <i class="fas fa-code-branch"></i> <span>${project.forks || 0}</span> </div> <div class="ml-auto text-xs"> Updated ${timeAgo} </div> </div> </div> <div class="card-footer"> <div class="flex gap-2"> <button class="btn btn-sm btn-primary" onclick="loadProjectIntoEditor
+
+function byId(id) {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Missing element #${id}. (This JS auto-creates UI; if you removed it, re-check.)`);
+  return el;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
