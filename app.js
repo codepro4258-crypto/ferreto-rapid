@@ -104,7 +104,7 @@ function getDefaultData() {
             { 
                 id: 1, 
                 username: 'admin', 
-                password: 'adminrakshveer', 
+                password: 'codepro4258@gmail.com', 
                 email: 'admin@ferretto.edu',
                 name: 'System Administrator', 
                 role: 'admin', 
